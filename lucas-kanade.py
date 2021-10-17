@@ -28,18 +28,21 @@ def getDelta(m,n,a):
     #   a11x+a12y+a13   a21x+a22y+a23
     #   a31x+a32y+a33   a41x+a42y+a43
     # ]
-    
-    # cell 11
-    c11 = np.dot(coord_n,a[0])
-    # cell 12
-    c12 = np.dot(coord_n,a[1])
-    # cell 21
-    c21 = np.dot(coord_n,a[2])
-    # cell 22
-    c22 = np.dot(coord_n,a[3])
+    d0 = np.expand_dims(np.dot(coord_n,a[0]),axis=-1)
+    d1 = np.expand_dims(np.dot(coord_n,a[1]),axis=-1)
+    d2 = np.expand_dims(np.dot(coord_n,a[2]),axis=-1)
+
+    J0_012 = coord_n/d2
+    J0_345 = np.zeros_like(J0_012)
+    J0_678 = -coord_n*d0/d2**2
+
+    J1_012 = np.zeros_like(J0_012)
+    J1_345 = coord_n/d2
+    J1_678 = -coord_n*d1/d2**2
+
     # row 1
-    r1 = np.stack([c11,c12],axis=2)
+    r1 = np.concatenate([J0_012,J0_345,J0_678],axis=2)
     # row 2
-    r2 = np.stack([c21,c22],axis=2)
+    r2 = np.concatenate([J1_012,J1_345,J1_678],axis=2)
     # final
     return np.stack([r1,r2],axis=2)
