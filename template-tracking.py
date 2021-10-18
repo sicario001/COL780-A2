@@ -1,20 +1,49 @@
 import os
 import numpy as np
 import cv2
+from numpy.core.fromnumeric import shape
 
 
 def projective_transformation(x, y, params):
     x1 = (params[0]*x+params[1]*y+params[2])/(params[6]*x+params[7]*y+params[8])
     y1 = (params[3]*x+params[4]*y+params[5])/(params[6]*x+params[7]*y+params[8])
-    return np.array([x1, y1])
+    return [x1,y1]
 
-def getJacobian(width, height, params) -> np.ndarray:
+def getDeltaW(coord,a):
+    # coord_n   |T| X 3
+    # a         3 X 3
+    # returns   |T| X 2 X 9
+    d0 = np.expand_dims(np.dot(coord,a[0]),axis=-1)
+    d1 = np.expand_dims(np.dot(coord,a[1]),axis=-1)
+    d2 = np.expand_dims(np.dot(coord,a[2]),axis=-1)
+
+    J0_012 = coord/d2
+    J0_345 = np.zeros_like(J0_012)
+    J0_678 = -coord*d0/d2**2
+
+    J1_012 = np.zeros_like(J0_012)
+    J1_345 = coord/d2
+    J1_678 = -coord*d1/d2**2
+
+    # row 1
+    r1 = np.concatenate([J0_012,J0_345,J0_678],axis=1)
+    # row 2
+    r2 = np.concatenate([J1_012,J1_345,J1_678],axis=1)
+    # final
+    return np.stack([r1,r2],axis=1)
+
+def getCoord(width, height):
+    coord = [[[x, y, 1] for x in range(width)] for y in range(height)]
+    coord = np.array(coord)
+    coord = coord.reshape((height*width, 3))
+    return coord
+
+def getJacobian(width, height, coord, params) -> np.ndarray:
     # returns jacobian for projective tranformation - a height*width*2*9 matrix
-    return None
+    J = getDeltaW(coord, params)
+    J = J.reshape((height, width, 2, 9))
+    return J
 
-def getError() -> np.ndarray:
-    # [T(x) - I(W(x,p))]
-    return None
 def jacobian_projective_tranformation(x, y, params):
     J = [[0 for i in range(9)] for j in range(2)]
     J[0][2] = 1/(params[6]*x+params[7]*y+params[8])
@@ -35,29 +64,50 @@ def jacobian_projective_tranformation(x, y, params):
 
     return np.array(J)
 
-def LK_parameterized_tracking(template, new_frame):
-    new_frame_gray = cv2.cvtColor(new_frame, cv2.COLOR_BGR2GRAY)
-    Ix = cv2.Sobel(new_frame_gray, cv2.CV_64F, 1, 0, ksize=5)
-    Iy = cv2.Sobel(new_frame_gray, cv2.CV_64F, 0, 1, ksize=5)
-    grad_I = np.stack((Ix, Iy), axis = -1).reshape((Ix.shape[0], Ix.shape[1], 1, 2))   # height*width*1*2 dimension
-    height, width = new_frame_gray.shape[0], new_frame_gray.shape[1]
+def LK_parameterized_tracking(old_frame, template_box, new_frame, coord):
+    T = cv2.cvtColor(old_frame, cv2.COLOR_BGR2GRAY)
+    I = cv2.cvtColor(new_frame, cv2.COLOR_BGR2GRAY)
+
+    Ix = cv2.Sobel(I, cv2.CV_64F, 1, 0, ksize=5)
+    Iy = cv2.Sobel(I, cv2.CV_64F, 0, 1, ksize=5)
+    # grad_I = np.stack((Ix, Iy), axis = -1).reshape((Ix.shape[0], Ix.shape[1], 1, 2))                                  # height*width*1*2 dimension
+    # print(Ix.shape)
+    height, width = I.shape[0], I.shape[1]
     # print(height, width)
     params = [1, 0, 0, 0, 1, 0, 0, 0, 1]
     params = np.array(params)
-    params.reshape((3,3))
-    print(params)
-    # need to compute J only once, so we can take this out of this function
-    J = getJacobian(width, height, params)                                              # height*width*2*num_params dimension
-    steepest_descent = np.matmul(grad_I, J)                                             # height*width*1*num_params dimension
-    steepest_descent_T = steepest_descent.transpose((0,1,3,2))                          # height*width*num_params*1 dimension
-    H = np.sum(np.matmul(steepest_descent_T, steepest_descent), axis=(0, 1))            # num_params*num_params dimension
-    inv_H = np.linalg.inv(H)                                                            # num_params*num_params dimension
-    delta_I = getError()                                                                # height*width*1*1 dimension
-    delta_params = np.sum(np.matmul(steepest_descent_T, delta_I), axis=(0, 1))          # num_params*1 dimension
-    delta_params = np.matmul(inv_H, delta_params)
-    delta_params.reshape((3,3))
-    new_p = np.matmul(delta_params, params)
-    return None
+    params = params.reshape((3,3))
+    for i in range(20):
+        inv_params = np.linalg.inv(params)
+        warped_Ix = cv2.warpPerspective(Ix, inv_params, dsize=(width, height), flags = cv2.INTER_LINEAR)
+        warped_Iy = cv2.warpPerspective(Iy, inv_params, dsize=(width, height), flags = cv2.INTER_LINEAR)
+        warped_I = cv2.warpPerspective(I, inv_params, dsize=(width, height), flags = cv2.INTER_LINEAR)
+        warped_grad_I = np.stack((warped_Ix, warped_Iy), axis = -1).reshape((height, width, 1, 2)) # height*width*1*2 dimension
+        # print(warped_I.shape)
+        # print(warped_grad_I.shape)
+        # print(T.shape)
+        # print(params)
+        # need to compute J only once, so we can take this out of this function
+        J = getJacobian(width, height, coord, params)                                       # height*width*2*num_params dimension
+        steepest_descent = np.matmul(warped_grad_I, J)                                      # height*width*1*num_params dimension
+        steepest_descent_T = steepest_descent.transpose((0,1,3,2))                          # height*width*num_params*1 dimension
+        H = np.sum((np.matmul(steepest_descent_T, steepest_descent))[template_box[0][0]:template_box[1][0]+1, template_box[0][1]:template_box[1][1]+1], axis=(0, 1))            # num_params*num_params dimension
+        inv_H = np.linalg.inv(H)                                                            # num_params*num_params dimension
+        delta_I = T-warped_I                                                                
+        delta_I = delta_I.reshape((height, width, 1, 1))                                    # height*width*1*1 dimension
+        delta_params = np.sum((np.matmul(steepest_descent_T, delta_I))[template_box[0][0]:template_box[1][0]+1, template_box[0][1]:template_box[1][1]+1], axis=(0, 1))          
+        delta_params = np.matmul(inv_H, delta_params)                                       # num_params*1 dimension
+        delta_params = delta_params.reshape((3,3))
+        new_p = delta_params+params
+        params = new_p
+
+    params = params.reshape((9))
+    corner_points = [template_box[0], [template_box[0][0], template_box[1][1]], template_box[1], [template_box[1][0], template_box[0][1]]]
+    warped_corner_points = [projective_transformation(corner_points[i][0], corner_points[i][1], params) for i in range(4)]
+    warped_corner_points = np.array(warped_corner_points, np.int32)
+    warped_corner_points = warped_corner_points.reshape((-1, 1, 2))
+    frame_track = cv2.polylines(new_frame.copy(), [warped_corner_points], True, (255, 0, 0), 2)
+    return frame_track
 
 
 #returns bounding rectangle as x, y, w, h (w is along x and h is along y)
@@ -124,7 +174,7 @@ def blockBasedTracking(frame, template, template_start_point, method):
     # return frame_tracking, new_template, top_left
 
 frames = []
-path_vid = "A2/Liquor/"
+path_vid = "A2/BlurCar2/"
 filenames = os.listdir(path_vid+'img/')
 groundtruth_file = open(path_vid+'groundtruth_rect.txt')
 groundtruth_rect = groundtruth_file.readlines()
@@ -139,11 +189,16 @@ frames = np.array(frames)
 template = frames[0][groundtruth_rect[0][1]:(groundtruth_rect[0][1]+groundtruth_rect[0][3]), groundtruth_rect[0][0]:(groundtruth_rect[0][0]+groundtruth_rect[0][2])].copy()
 template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
 template_start_point = (groundtruth_rect[0][0], groundtruth_rect[0][1])
+template_end_point = (groundtruth_rect[0][0]+groundtruth_rect[0][2], groundtruth_rect[0][1]+groundtruth_rect[0][3])
+template_box = (template_start_point, template_end_point)
+coord = getCoord(frames[0].shape[1], frames[0].shape[0])
 for i in range(1, len(frames)):
     frame = frames[i]
-    template_track, template, template_start_point = blockBasedTracking(frame, template, template_start_point, cv2.TM_CCORR_NORMED)
-    bounding_rect.append((template_start_point[0], template_start_point[1], template.shape[1], template.shape[0]))
-    cv2.imshow("template tracking block based", template_track)
+    LK_track = LK_parameterized_tracking(frames[0], template_box, frame, coord)
+    cv2.imshow("template tracking LK", LK_track)
+    # template_track, template, template_start_point = blockBasedTracking(frame, template, template_start_point, cv2.TM_CCORR_NORMED)
+    # bounding_rect.append((template_start_point[0], template_start_point[1], template.shape[1], template.shape[0]))
+    # cv2.imshow("template tracking block based", template_track)
     start_point = (groundtruth_rect[i][0], groundtruth_rect[i][1])
     end_point = (groundtruth_rect[i][0]+groundtruth_rect[i][2], groundtruth_rect[i][1]+groundtruth_rect[i][3])
     frame = cv2.rectangle(frame, start_point, end_point, (255, 0, 0), 2)
@@ -151,7 +206,7 @@ for i in range(1, len(frames)):
     k = cv2.waitKey(0)
     if k==27:
         break
-print("mIOU: "+str(getMeanIOUScore(bounding_rect, groundtruth_rect)))
+# print("mIOU: "+str(getMeanIOUScore(bounding_rect, groundtruth_rect)))
 cv2.destroyAllWindows()
 
 
