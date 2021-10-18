@@ -8,8 +8,12 @@ def projective_transformation(x, y, params):
     y1 = (params[3]*x+params[4]*y+params[5])/(params[6]*x+params[7]*y+params[8])
     return np.array([x1, y1])
 
-def getJacobian(width, height, params):
+def getJacobian(width, height, params) -> np.ndarray:
     # returns jacobian for projective tranformation - a height*width*2*9 matrix
+    return None
+
+def getError() -> np.ndarray:
+    # [T(x) - I(W(x,p))]
     return None
 def jacobian_projective_tranformation(x, y, params):
     J = [[0 for i in range(9)] for j in range(2)]
@@ -35,9 +39,24 @@ def LK_parameterized_tracking(template, new_frame):
     new_frame_gray = cv2.cvtColor(new_frame, cv2.COLOR_BGR2GRAY)
     Ix = cv2.Sobel(new_frame_gray, cv2.CV_64F, 1, 0, ksize=5)
     Iy = cv2.Sobel(new_frame_gray, cv2.CV_64F, 0, 1, ksize=5)
+    grad_I = np.stack((Ix, Iy), axis = -1).reshape((Ix.shape[0], Ix.shape[1], 1, 2))   # height*width*1*2 dimension
     height, width = new_frame_gray.shape[0], new_frame_gray.shape[1]
+    # print(height, width)
     params = [1, 0, 0, 0, 1, 0, 0, 0, 1]
-    J = getJacobian(width, height, params)
+    params = np.array(params)
+    params.reshape((3,3))
+    print(params)
+    # need to compute J only once, so we can take this out of this function
+    J = getJacobian(width, height, params)                                              # height*width*2*num_params dimension
+    steepest_descent = np.matmul(grad_I, J)                                             # height*width*1*num_params dimension
+    steepest_descent_T = steepest_descent.transpose((0,1,3,2))                          # height*width*num_params*1 dimension
+    H = np.sum(np.matmul(steepest_descent_T, steepest_descent), axis=(0, 1))            # num_params*num_params dimension
+    inv_H = np.linalg.inv(H)                                                            # num_params*num_params dimension
+    delta_I = getError()                                                                # height*width*1*1 dimension
+    delta_params = np.sum(np.matmul(steepest_descent_T, delta_I), axis=(0, 1))          # num_params*1 dimension
+    delta_params = np.matmul(inv_H, delta_params)
+    delta_params.reshape((3,3))
+    new_p = np.matmul(delta_params, params)
     return None
 
 
@@ -122,7 +141,6 @@ template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
 template_start_point = (groundtruth_rect[0][0], groundtruth_rect[0][1])
 for i in range(1, len(frames)):
     frame = frames[i]
-
     template_track, template, template_start_point = blockBasedTracking(frame, template, template_start_point, cv2.TM_CCORR_NORMED)
     bounding_rect.append((template_start_point[0], template_start_point[1], template.shape[1], template.shape[0]))
     cv2.imshow("template tracking block based", template_track)
