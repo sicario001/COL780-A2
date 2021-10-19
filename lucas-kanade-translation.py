@@ -1,10 +1,8 @@
 import cv2
-from matplotlib.path import Path
 import numpy as np
 import os
 
-def checkConverge(p,delta_p,e):
-    a = np.array([[0,0,1],[1,0,1],[0,1,1],[1,1,1]])
+def checkConverge(a,p,delta_p,e):
     w_p = warp(a,p)
     p_n = p + delta_p
     w_p_n = warp(a,p_n)
@@ -90,8 +88,8 @@ def getDeltaW(coord,a):
     return np.stack([r1,r2],axis=1)
 
 def getCoords(bounding_box):
-    x1,y1 = np.min(bounding_box,axis=0)
-    x2,y2 = np.max(bounding_box,axis=0)
+    x1,y1 = np.min(bounding_box,axis=0).astype('int32')
+    x2,y2 = np.max(bounding_box,axis=0).astype('int32')
     return np.array([[[i,j,1] for i in range(x1,x2+1)] for j in range(y1,y2+1)]).reshape((-1,3))
 
 def getDeltaI(frame):
@@ -105,27 +103,29 @@ def getDeltaI(frame):
     Iy_n = np.asarray( Iy[:,:] )
     return np.expand_dims(np.stack([Ix_n,Iy_n],axis=2),axis=2)
 
-def getDeltaP(prev_frame,curr_frame,coord_p,p, Jacobian):
+def getDeltaP(prev_frame,curr_frame,coord_p,p):
     # bounding_box      4 X 2
     # coord_p = getCoords(bounding_box)                           # |T| X 3
-    coord_n = warp(coord_p,p)                                   # |T| X 2
+    coord_n = warp(coord_p,p)                   
+    assert coord_n.shape[0] == coord_p.shape[0]
+    assert coord_n.shape[1] == 2                                    # |T| X 2
     # print("coord_n",coord_n.shape)
-    deltaW = Jacobian                                           # |T| X 2 X 9
+    # deltaW = Jacobian                                           # |T| X 2 X 9
     # print("deltaW",deltaW.shape)
     deltaI = bilinearInterpolate(getDeltaI(curr_frame),coord_n) # |T| X 1 X 2
     # print("deltaI",deltaI.shape)
-    deltaI_W = deltaI @ deltaW                                  # |T| X 1 X 9
+    deltaI_W = deltaI #@ deltaW                                  # |T| X 1 X 2
     # print("deltaI_W",deltaI_W.shape)
-    deltaI_W_T = np.transpose(deltaI_W,(0,2,1))                 # |T| X 9 X 1
+    deltaI_W_T = np.transpose(deltaI_W,(0,2,1))                 # |T| X 2 X 1
     # print("deltaI_W_T",deltaI_W_T.shape)
-    H = np.sum(deltaI_W_T @ deltaI_W,axis=0)                    # 9 X 9
+    H = np.sum(deltaI_W_T @ deltaI_W,axis=0)                    # 2 X 2
     # print(H)
     # print("H",H.shape)
     H_inv = np.linalg.pinv(H)
     # print("H_inv",H_inv.shape)
     diff = getDiff(prev_frame,curr_frame,coord_p,p)             # |T| X 1
     # print("diff",diff.shape)
-    deltaP = H_inv @ np.sum(deltaI_W_T[:,:,0] * diff,axis=0)    # 9
+    deltaP = H_inv @ np.sum(deltaI_W_T[:,:,0] * diff,axis=0)    # 2
     # print("deltaP",deltaP.shape)
     deltaP = np.array([[0, 0, deltaP[0]], [0, 0, deltaP[1]], [0, 0, 0]])
     # deltaP = np.reshape(deltaP,(3,3))
@@ -135,20 +135,21 @@ def getDeltaP(prev_frame,curr_frame,coord_p,p, Jacobian):
 
     return deltaP
 
-def iterate(prev_frame,curr_frame,coord_p,p, Jacobian):
+def iterate(prev_frame,curr_frame,coord_p, p = np.eye(3)):
     # p = np.eye(3)
-    for i in range(200):
-        deltaP = getDeltaP(prev_frame,curr_frame,coord_p,p, Jacobian)
+    orig_p = p.copy()
+    for i in range(30):
+        deltaP = getDeltaP(prev_frame,curr_frame,coord_p,p)
         # print(deltaP)
-        if checkConverge(p,deltaP,0.01):
+        if checkConverge(coord_p[[0,-1]],p,deltaP,0.001):
             break
-        norm = np.sum(deltaP**2)
+        # norm = np.sum(deltaP**2)
         # print(norm)
         # print(i)
         p+=deltaP
         # print(np.reshape(p,(9,)))
     # print(np.around(p))
-    return p
+    return (p - orig_p)[[0,1],[2]]
 
 def drawBound(params,template_box,frame):
     corner_points = [template_box[0], [template_box[0][0], template_box[1][1]], template_box[1], [template_box[1][0], template_box[0][1]]]
@@ -169,18 +170,17 @@ def getImgPyr(img, pyr_layers):
     for i in range(pyr_layers):
         pyr.append(cv2.pyrDown(pyr[-1]))
     return pyr
+
 def pyrUpParams(p):
-    scale = np.array([[1, 1, 2], [1, 1, 2], [1, 1, 1]])
-    return p*scale
+    p[[0,1],[2]]*=2
 
 def pyrDownParams(p):
-    scale = np.array([[1, 1, 0.5], [1, 1, 0.5], [1, 1, 1]])
-    return p*scale
+    p[[0,1],[2]]/=2
 
 def LK_run():
     frames = []
     path_vid = "A2/BlurCar2/"
-    filenames = os.listdir(path_vid+'img/')
+    filenames = sorted(os.listdir(path_vid+'img/'))
     groundtruth_file = open(path_vid+'groundtruth_rect.txt')
     groundtruth_rect = groundtruth_file.readlines()
     groundtruth_rect = [getRect(x) for x in groundtruth_rect]
@@ -194,31 +194,35 @@ def LK_run():
     template_start_point = [groundtruth_rect[0][0], groundtruth_rect[0][1]]
     template_end_point = [groundtruth_rect[0][0]+groundtruth_rect[0][2], groundtruth_rect[0][1]+groundtruth_rect[0][3]]
     template_box = [template_start_point, template_end_point]
-    template_box = np.array(template_box)
-    pyr_layers = 3
-    template_box_pyr = []
-    coord_pyr = []
-    Jacobian_pyr = []
-    frame_0_pyr = getImgPyr(frames[0], pyr_layers)
+    template_box = np.array(template_box).astype('float64')
+    pyr_layers = 5
+    frame_pyr = [getImgPyr(f, pyr_layers) for f in frames]
+    template_pyr = getImgPyr(template, pyr_layers)
+    coord_t_pyr = []
     for i in range(pyr_layers+1):
-        template_box_pyr.append(template_box//(1<<i))
-        coord = getCoords(np.array(template_box_pyr[i]))
-        coord_pyr.append(coord)
-        Jacobian = getDeltaW_translation(coord)
-        Jacobian_pyr.append(Jacobian)
+        # template_box_pyr.append(template_box//(1<<i))
+        coord = getCoords(np.array([[0,0],template_box[1]-template_box[0]])//(1<<i))
+        coord_t_pyr.append(coord)
+    #     Jacobian = getDeltaW_translation(coord)
+    #     Jacobian_pyr.append(Jacobian)
     # print("coord",coord.shape,np.min(coord,axis=0),np.max(coord,axis=0))
-    p = np.eye(3)
+    coord = getCoords(template_box)
     for i in range(1, len(frames)):
         frame = frames[i]
-        frame_pyr = getImgPyr(frame, pyr_layers)
         for layer in range(pyr_layers):
-            p = pyrDownParams(p)
+            template_box/=2
         for layer in range(pyr_layers, -1, -1):
-            p = iterate(frame_0_pyr[layer], frame_pyr[layer], coord_pyr[layer], p, Jacobian_pyr[layer])
+            coord = getCoords(template_box)
+            template_box += iterate(frame_pyr[i-1][layer], frame_pyr[i][layer], coord)
+            p_n = np.eye(3)
+            p_n[0][2] = template_box[0][0]
+            p_n[1][2] = template_box[0][1]
+            template_box += iterate(template_pyr[layer], frame_pyr[i][layer], coord_t_pyr[layer] ,p_n)
             if (layer>0):
-                p = pyrUpParams(p)
+                template_box*=2
+
        
-        cv2.imshow("template tracking LK", drawBound(p,template_box,frame))
+        cv2.imshow("template tracking LK", drawBound(np.eye(3),template_box,frame))
         # template_track, template, template_start_point = blockBasedTracking(frame, template, template_start_point, cv2.TM_CCORR_NORMED)
         # bounding_rect.append((template_start_point[0], template_start_point[1], template.shape[1], template.shape[0]))
         # cv2.imshow("template tracking block based", template_track)
