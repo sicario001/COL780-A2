@@ -1,5 +1,5 @@
+from LucasKanade import LucasKanade
 import cv2
-from matplotlib.path import Path
 import numpy as np
 import os
 
@@ -14,29 +14,29 @@ def checkConverge(p,delta_p,e):
 def bilinearInterpolate(arr,coord):
     x = np.asarray(coord[:,0])
     y = np.asarray(coord[:,1])
-    return arr[y.astype('int32'),x.astype('int32')]
-    # x0 = np.floor(x).astype('int32')
-    # x1 = x0 + 1
-    # y0 = np.floor(y).astype('int32')
-    # y1 = y0 + 1
+    # return arr[y.astype('int32'),x.astype('int32')]
+    x0 = np.floor(x).astype('int32')
+    x1 = x0 + 1
+    y0 = np.floor(y).astype('int32')
+    y1 = y0 + 1
 
-    # x0 = np.clip(x0, 0, arr.shape[1]-1)
-    # x1 = np.clip(x1, 0, arr.shape[1]-1)
-    # y0 = np.clip(y0, 0, arr.shape[0]-1)
-    # y1 = np.clip(y1, 0, arr.shape[0]-1)
+    x0 = np.clip(x0, 0, arr.shape[1]-1)
+    x1 = np.clip(x1, 0, arr.shape[1]-1)
+    y0 = np.clip(y0, 0, arr.shape[0]-1)
+    y1 = np.clip(y1, 0, arr.shape[0]-1)
 
-    # wa = (x1-x) * (y1-y)
-    # wb = (x1-x) * (y-y0)
-    # wc = (x-x0) * (y1-y)
-    # wd = (x-x0) * (y-y0)
+    wa = (x1-x) * (y1-y)
+    wb = (x1-x) * (y-y0)
+    wc = (x-x0) * (y1-y)
+    wd = (x-x0) * (y-y0)
 
-    # if len(arr.shape) == 4:
-    #     wa = np.expand_dims(wa,(1,2))
-    #     wb = np.expand_dims(wb,(1,2))
-    #     wc = np.expand_dims(wc,(1,2))
-    #     wd = np.expand_dims(wd,(1,2))
+    if len(arr.shape) == 4:
+        wa = np.expand_dims(wa,(1,2))
+        wb = np.expand_dims(wb,(1,2))
+        wc = np.expand_dims(wc,(1,2))
+        wd = np.expand_dims(wd,(1,2))
 
-    # return wa*arr[y0,x0] + wb*arr[y1,x0] + wc*arr[y0,x1] + wd*arr[y1,x1]
+    return wa*arr[y0,x0] + wb*arr[y1,x0] + wc*arr[y0,x1] + wd*arr[y1,x1]
 
 def warp(coord,p):
     # coord_n   |T| X 3
@@ -98,35 +98,42 @@ def getDeltaI(frame):
     # return    m X n X 1 X 2
 
     # TODO: Same shape as original?
-    Ix = cv2.Sobel(frame, cv2.CV_64F, 1, 0, ksize=5)
-    Iy = cv2.Sobel(frame, cv2.CV_64F, 0, 1, ksize=5)
-    Ix_n = np.asarray( Ix[:,:] )
-    Iy_n = np.asarray( Iy[:,:] )
-    return np.expand_dims(np.stack([Ix_n,Iy_n],axis=2),axis=2)
+    # Ix = cv2.Sobel(frame, cv2.CV_64F, 1, 0, ksize=5)
+    # Iy = cv2.Sobel(frame, cv2.CV_64F, 0, 1, ksize=5)
+    # Ix_n = np.asarray( Ix[:,:] )
+    # Iy_n = np.asarray( Iy[:,:] )
+    # return np.expand_dims(np.stack([Ix_n,Iy_n],axis=2),axis=2)
+    Iy, Ix = np.gradient(frame)
+    return np.expand_dims(np.stack([Ix,Iy],axis=2),axis=2)
 
 def getDeltaP(prev_frame,curr_frame,coord_p,p, Jacobian):
     # bounding_box      4 X 2
     # coord_p = getCoords(bounding_box)                           # |T| X 3
     coord_n = warp(coord_p,p)                                   # |T| X 2
     # print("coord_n",coord_n.shape)
-    deltaW = Jacobian                                           # |T| X 2 X 9
+    # deltaW = Jacobian                                           # |T| X 2 X 9
     # print("deltaW",deltaW.shape)
+    # print(np.sum(bilinearInterpolate(curr_frame,coord_n)))
     deltaI = bilinearInterpolate(getDeltaI(curr_frame),coord_n) # |T| X 1 X 2
-    # print("deltaI",deltaI.shape)
-    deltaI_W = deltaI @ deltaW                                  # |T| X 1 X 9
+    print("Ixy",np.sum(deltaI))
+    deltaI_W = deltaI                                           # |T| X 1 X 2
     # print("deltaI_W",deltaI_W.shape)
-    deltaI_W_T = np.transpose(deltaI_W,(0,2,1))                 # |T| X 9 X 1
+    deltaI_W_T = np.transpose(deltaI_W,(0,2,1))                 # |T| X 2 X 1
     # print("deltaI_W_T",deltaI_W_T.shape)
-    H = np.sum(deltaI_W_T @ deltaI_W,axis=0)                    # 9 X 9
+    H = np.sum(deltaI_W_T @ deltaI_W,axis=0)                    # 2 X 2
+    print("H",np.sum(H))
     # print(H)
     # print("H",H.shape)
-    H_inv = np.linalg.pinv(H)
+    H_inv = np.linalg.inv(H)
     # print("H_inv",H_inv.shape)
     diff = getDiff(prev_frame,curr_frame,coord_p,p)             # |T| X 1
+    print("diff",np.sum(diff))
+    # assert False
     # print("diff",diff.shape)
-    deltaP = H_inv @ np.sum(deltaI_W_T[:,:,0] * diff,axis=0)    # 9
+    deltaP = H_inv @ np.sum(deltaI_W_T[:,:,0] * diff,axis=0)    # 2
     # print("deltaP",deltaP.shape)
     deltaP = np.array([[0, 0, deltaP[0]], [0, 0, deltaP[1]], [0, 0, 0]])
+    print(deltaP.shape)
     # deltaP = np.reshape(deltaP,(3,3))
     # print(np.sum(deltaP))
     # assert False
@@ -135,7 +142,7 @@ def getDeltaP(prev_frame,curr_frame,coord_p,p, Jacobian):
     return deltaP
 
 def iterate(prev_frame,curr_frame,coord_p,p, Jacobian):
-    for i in range(100):
+    for i in range(9):
         deltaP = getDeltaP(prev_frame,curr_frame,coord_p,p, Jacobian)
         # print(deltaP)
         # if checkConverge(p,deltaP,0.0001):
@@ -156,7 +163,7 @@ def drawBound(params,template_box,frame):
 def getRect(val):
     val = val.replace("\t", ",")
     bounds = val.rstrip().split(",")
-    bounds = [int(x)//4 for x in bounds]
+    bounds = [int(x) for x in bounds]
     return bounds
 
 def LK_run():
@@ -168,7 +175,7 @@ def LK_run():
     groundtruth_rect = [getRect(x) for x in groundtruth_rect]
     for filename in filenames:
         frame = cv2.imread(os.path.join(path_vid+'img/', filename),0)
-        frames.append(cv2.resize(frame, None, fx= 1/4, fy= 1/4, interpolation= cv2.INTER_LINEAR))
+        frames.append(frame)
 
     frames = np.array(frames)
     #Get initial template
@@ -183,7 +190,10 @@ def LK_run():
     p = np.eye(3)
     for i in range(1, len(frames)):
         frame = frames[i]
-        p = iterate(frames[0], frame, coord, p, Jacobian)
+        p[0][2],p[1][2] = LucasKanade(frames[0], frame, [227,207,349,306], np.array([p[0][2],p[1][2]]))
+        # p = iterate(frames[0], frame, coord, p, Jacobian)
+        print(p)
+        assert False
         cv2.imshow("template tracking LK", drawBound(p,template_box,frame))
         # template_track, template, template_start_point = blockBasedTracking(frame, template, template_start_point, cv2.TM_CCORR_NORMED)
         # bounding_rect.append((template_start_point[0], template_start_point[1], template.shape[1], template.shape[0]))
