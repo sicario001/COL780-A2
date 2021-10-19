@@ -194,7 +194,7 @@ def LK_run():
     template_end_point = [groundtruth_rect[0][0]+groundtruth_rect[0][2], groundtruth_rect[0][1]+groundtruth_rect[0][3]]
     template_box = [template_start_point, template_end_point]
     template_box = np.array(template_box)
-    pyr_layers = 5
+    pyr_layers = 3
     template_box_pyr = []
     coord_pyr = []
     Jacobian_pyr = []
@@ -206,9 +206,9 @@ def LK_run():
         Jacobian = getDeltaW_affine(coord)
         Jacobian_pyr.append(Jacobian)
     # print("coord",coord.shape,np.min(coord,axis=0),np.max(coord,axis=0))
-    
+    p = np.eye(3)
     for i in range(1, len(frames)):
-        # p = np.eye(3)
+        
         frame = frames[i]
         frame_pyr = getImgPyr(frame, pyr_layers)
         for layer in range(pyr_layers):
