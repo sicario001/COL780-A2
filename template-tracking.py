@@ -91,11 +91,13 @@ def LK_parameterized_tracking(old_frame, template_box, new_frame, coord):
         J = getJacobian(width, height, coord, params)                                       # height*width*2*num_params dimension
         steepest_descent = np.matmul(warped_grad_I, J)                                      # height*width*1*num_params dimension
         steepest_descent_T = steepest_descent.transpose((0,1,3,2))                          # height*width*num_params*1 dimension
-        H = np.sum((np.matmul(steepest_descent_T, steepest_descent))[template_box[0][0]:template_box[1][0]+1, template_box[0][1]:template_box[1][1]+1], axis=(0, 1))            # num_params*num_params dimension
+        H = np.sum((np.matmul(steepest_descent_T, steepest_descent))[ template_box[0][1]:template_box[1][1]+1,template_box[0][0]:template_box[1][0]+1], axis=(0, 1))            # num_params*num_params dimension
         inv_H = np.linalg.inv(H)                                                            # num_params*num_params dimension
-        delta_I = T-warped_I                                                                
+        delta_I = T-warped_I
+        print(np.sum(steepest_descent[ template_box[0][1]:template_box[1][1]+1,template_box[0][0]:template_box[1][0]+1]))
+        assert False                                                                
         delta_I = delta_I.reshape((height, width, 1, 1))                                    # height*width*1*1 dimension
-        delta_params = np.sum((np.matmul(steepest_descent_T, delta_I))[template_box[0][0]:template_box[1][0]+1, template_box[0][1]:template_box[1][1]+1], axis=(0, 1))          
+        delta_params = np.sum((np.matmul(steepest_descent_T, delta_I))[template_box[0][1]:template_box[1][1]+1, template_box[0][0]:template_box[1][0]+1], axis=(0, 1))          
         delta_params = np.matmul(inv_H, delta_params)                                       # num_params*1 dimension
         delta_params = delta_params.reshape((3,3))
         new_p = delta_params+params

@@ -14,29 +14,29 @@ def checkConverge(p,delta_p,e):
 def bilinearInterpolate(arr,coord):
     x = np.asarray(coord[:,0])
     y = np.asarray(coord[:,1])
+    return arr[y.astype('int32'),x.astype('int32')]
+    # x0 = np.floor(x).astype('int32')
+    # x1 = x0 + 1
+    # y0 = np.floor(y).astype('int32')
+    # y1 = y0 + 1
 
-    x0 = np.floor(x).astype('int32')
-    x1 = x0 + 1
-    y0 = np.floor(y).astype('int32')
-    y1 = y0 + 1
+    # x0 = np.clip(x0, 0, arr.shape[1]-1)
+    # x1 = np.clip(x1, 0, arr.shape[1]-1)
+    # y0 = np.clip(y0, 0, arr.shape[0]-1)
+    # y1 = np.clip(y1, 0, arr.shape[0]-1)
 
-    x0 = np.clip(x0, 0, arr.shape[1]-1)
-    x1 = np.clip(x1, 0, arr.shape[1]-1)
-    y0 = np.clip(y0, 0, arr.shape[0]-1)
-    y1 = np.clip(y1, 0, arr.shape[0]-1)
+    # wa = (x1-x) * (y1-y)
+    # wb = (x1-x) * (y-y0)
+    # wc = (x-x0) * (y1-y)
+    # wd = (x-x0) * (y-y0)
 
-    wa = (x1-x) * (y1-y)
-    wb = (x1-x) * (y-y0)
-    wc = (x-x0) * (y1-y)
-    wd = (x-x0) * (y-y0)
+    # if len(arr.shape) == 4:
+    #     wa = np.expand_dims(wa,(1,2))
+    #     wb = np.expand_dims(wb,(1,2))
+    #     wc = np.expand_dims(wc,(1,2))
+    #     wd = np.expand_dims(wd,(1,2))
 
-    if len(arr.shape) == 4:
-        wa = np.expand_dims(wa,(1,2))
-        wb = np.expand_dims(wb,(1,2))
-        wc = np.expand_dims(wc,(1,2))
-        wd = np.expand_dims(wd,(1,2))
-
-    return wa*arr[y0,x0] + wb*arr[y1,x0] + wc*arr[y0,x1] + wd*arr[y1,x1]
+    # return wa*arr[y0,x0] + wb*arr[y1,x0] + wc*arr[y0,x1] + wd*arr[y1,x1]
 
 def warp(coord,p):
     # coord_n   |T| X 3
@@ -87,8 +87,7 @@ def getDeltaW(coord,a):
 def getCoords(bounding_box):
     x1,y1 = np.min(bounding_box,axis=0)
     x2,y2 = np.max(bounding_box,axis=0)
-    print(bounding_box)
-    return np.array([[[i,j,1] for j in range(y1,y2+1)] for i in range(x1,x2+1)]).reshape((-1,3))
+    return np.array([[[i,j,1] for i in range(x1,x2+1)] for j in range(y1,y2+1)]).reshape((-1,3))
 
 def getDeltaI(frame):
     # frame     m x n
@@ -120,7 +119,8 @@ def getDeltaP(prev_frame,curr_frame,coord_p,p):
     # print("H_inv",H_inv.shape)
     diff = getDiff(prev_frame,curr_frame,coord_p,p)             # |T| X 1
     # print("diff",diff.shape)
-    # print(np.sum(diff))
+    print(np.sum(deltaI))
+    assert False
     deltaP = H_inv @ np.sum(deltaI_W_T[:,:,0] * diff,axis=0)    # 9
     # print("deltaP",deltaP.shape)
 
@@ -130,7 +130,7 @@ def getDeltaP(prev_frame,curr_frame,coord_p,p):
     return deltaP
 
 def iterate(prev_frame,curr_frame,coord_p,p):
-    for i in range(20):
+    for i in range(100):
         deltaP = getDeltaP(prev_frame,curr_frame,coord_p,p)
         # print(deltaP)
         # if checkConverge(p,deltaP,0.0001):
@@ -171,7 +171,7 @@ def LK_run():
     template_end_point = (groundtruth_rect[0][0]+groundtruth_rect[0][2], groundtruth_rect[0][1]+groundtruth_rect[0][3])
     template_box = (template_start_point, template_end_point)
     print(template_box)
-    coord = getCoords(np.array([template_start_point,[template_start_point[0],template_end_point[1]],[template_end_point[0],template_start_point[1]],template_end_point]))
+    coord = getCoords(np.array([template_start_point,template_end_point]))
     print("coord",coord.shape,np.min(coord,axis=0),np.max(coord,axis=0))
     p = np.eye(3)
     for i in range(1, len(frames)):
@@ -190,3 +190,6 @@ def LK_run():
             break
     # print("mIOU: "+str(getMeanIOUScore(bounding_rect, groundtruth_rect)))
     cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    LK_run()
