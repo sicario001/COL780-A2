@@ -119,12 +119,12 @@ def getDeltaP(prev_frame,curr_frame,coord_p,p):
     # print("H_inv",H_inv.shape)
     diff = getDiff(prev_frame,curr_frame,coord_p,p)             # |T| X 1
     # print("diff",diff.shape)
-    print(np.sum(deltaI))
-    assert False
     deltaP = H_inv @ np.sum(deltaI_W_T[:,:,0] * diff,axis=0)    # 9
     # print("deltaP",deltaP.shape)
 
     deltaP = np.reshape(deltaP,(3,3))
+    print(np.sum(H_inv))
+    assert False
     # bounding_box_new = warp(np.concatenate(bounding_box,np.ones(1,4),axis=1),p)
 
     return deltaP

@@ -3,7 +3,7 @@ import numpy as np
 import cv2
 
 def getAffineJacobian(width, height):
-    J = [[[[x, 0, y, 0, 1, 0], [0, x, 0, y, 0, 1]] for x in range(width)] for y in range(height)]
+    J = [[[[x, y, 1, 0, 0, 0], [0, 0, 0, x, y, 1]] for x in range(width)] for y in range(height)]
     J = np.array(J)
     return J
 
@@ -105,7 +105,9 @@ def LK_parameterized_tracking(old_frame, template_box, new_frame, coord, params,
     warped_corner_points = [projective_transformation(corner_points[i][0], corner_points[i][1], proj_params) for i in range(4)]
     warped_corner_points = np.array(warped_corner_points, np.int32)
     warped_corner_points = warped_corner_points.reshape((-1, 1, 2))
-    print(warped_corner_points)
+    # print(corner_points)
+    # print(warped_corner_points)
+    # print(params.reshape((2,3)))
     frame_track = cv2.polylines(new_frame.copy(), [warped_corner_points], True, (255, 0, 0), 2)
 
     return frame_track, params.reshape((2,3))

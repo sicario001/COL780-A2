@@ -64,8 +64,11 @@ def jacobian_projective_tranformation(x, y, params):
 
     return np.array(J)
 
-def LK_parameterized_tracking(old_frame, template_box, new_frame, coord):
-    T = cv2.cvtColor(old_frame, cv2.COLOR_BGR2GRAY)
+def crop(image, box):
+    return image[box[0][1]:(box[1][1]+1), box[0][0]:(box[1][0]+1)]
+
+def LK_parameterized_tracking(old_frame, template_box, new_frame, coord, params):
+    T = crop(cv2.cvtColor(old_frame, cv2.COLOR_BGR2GRAY), template_box)
     I = cv2.cvtColor(new_frame, cv2.COLOR_BGR2GRAY)
 
     Ix = cv2.Sobel(I, cv2.CV_64F, 1, 0, ksize=5)
@@ -74,32 +77,30 @@ def LK_parameterized_tracking(old_frame, template_box, new_frame, coord):
     # print(Ix.shape)
     height, width = I.shape[0], I.shape[1]
     # print(height, width)
-    params = [1, 0, 0, 0, 1, 0, 0, 0, 1]
-    params = np.array(params)
-    params = params.reshape((3,3))
-    for i in range(20):
-        inv_params = np.linalg.inv(params)
-        warped_Ix = cv2.warpPerspective(Ix, inv_params, dsize=(width, height), flags = cv2.INTER_LINEAR)
-        warped_Iy = cv2.warpPerspective(Iy, inv_params, dsize=(width, height), flags = cv2.INTER_LINEAR)
-        warped_I = cv2.warpPerspective(I, inv_params, dsize=(width, height), flags = cv2.INTER_LINEAR)
-        warped_grad_I = np.stack((warped_Ix, warped_Iy), axis = -1).reshape((height, width, 1, 2)) # height*width*1*2 dimension
-        # print(warped_I.shape)
-        # print(warped_grad_I.shape)
+    for i in range(1):
+        # inv_params = np.linalg.inv(params)
+        warped_Ix = cv2.warpPerspective(Ix, params, dsize=(width, height), flags = (cv2.INTER_LINEAR+cv2.WARP_INVERSE_MAP))
+        warped_Iy = cv2.warpPerspective(Iy, params, dsize=(width, height), flags = (cv2.INTER_LINEAR+cv2.WARP_INVERSE_MAP))
+        warped_I = crop(cv2.warpPerspective(I, params, dsize=(width, height), flags = (cv2.INTER_LINEAR+cv2.WARP_INVERSE_MAP)), template_box)
+        warped_grad_I = crop(np.stack((warped_Ix, warped_Iy), axis = -1).reshape((height, width, 1, 2)), template_box) # height*width*1*2 dimension
+        # print(warped_I)
+        # print(warped_grad_I)
         # print(T.shape)
         # print(params)
         # need to compute J only once, so we can take this out of this function
-        J = getJacobian(width, height, coord, params)                                       # height*width*2*num_params dimension
+        J = crop(getJacobian(width, height, coord, params), template_box)                   # height*width*2*num_params dimension
+        # print(J)
         steepest_descent = np.matmul(warped_grad_I, J)                                      # height*width*1*num_params dimension
         steepest_descent_T = steepest_descent.transpose((0,1,3,2))                          # height*width*num_params*1 dimension
-        H = np.sum((np.matmul(steepest_descent_T, steepest_descent))[ template_box[0][1]:template_box[1][1]+1,template_box[0][0]:template_box[1][0]+1], axis=(0, 1))            # num_params*num_params dimension
-        inv_H = np.linalg.inv(H)                                                            # num_params*num_params dimension
-        delta_I = T-warped_I
-        print(np.sum(steepest_descent[ template_box[0][1]:template_box[1][1]+1,template_box[0][0]:template_box[1][0]+1]))
-        assert False                                                                
-        delta_I = delta_I.reshape((height, width, 1, 1))                                    # height*width*1*1 dimension
-        delta_params = np.sum((np.matmul(steepest_descent_T, delta_I))[template_box[0][1]:template_box[1][1]+1, template_box[0][0]:template_box[1][0]+1], axis=(0, 1))          
+        H = np.sum(np.matmul(steepest_descent_T, steepest_descent), axis=(0, 1))            # num_params*num_params dimension
+        inv_H = np.linalg.inv(H)                                                           # num_params*num_params dimension
+        delta_I = T-warped_I                                                                
+        delta_I = delta_I.reshape((delta_I.shape[0], delta_I.shape[1], 1, 1))               # height*width*1*1 dimension
+        delta_params = np.sum(np.matmul(steepest_descent_T, delta_I), axis=(0, 1))          
         delta_params = np.matmul(inv_H, delta_params)                                       # num_params*1 dimension
         delta_params = delta_params.reshape((3,3))
+        print(np.sum(inv_H))
+        assert False
         new_p = delta_params+params
         params = new_p
 
@@ -109,7 +110,7 @@ def LK_parameterized_tracking(old_frame, template_box, new_frame, coord):
     warped_corner_points = np.array(warped_corner_points, np.int32)
     warped_corner_points = warped_corner_points.reshape((-1, 1, 2))
     frame_track = cv2.polylines(new_frame.copy(), [warped_corner_points], True, (255, 0, 0), 2)
-    return frame_track
+    return frame_track, params.reshape((3,3))
 
 
 #returns bounding rectangle as x, y, w, h (w is along x and h is along y)
@@ -194,9 +195,12 @@ template_start_point = (groundtruth_rect[0][0], groundtruth_rect[0][1])
 template_end_point = (groundtruth_rect[0][0]+groundtruth_rect[0][2], groundtruth_rect[0][1]+groundtruth_rect[0][3])
 template_box = (template_start_point, template_end_point)
 coord = getCoord(frames[0].shape[1], frames[0].shape[0])
+params = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+params = np.array(params, dtype=np.float32)
+params = params.reshape((3,3))
 for i in range(1, len(frames)):
     frame = frames[i]
-    LK_track = LK_parameterized_tracking(frames[0], template_box, frame, coord)
+    LK_track, params = LK_parameterized_tracking(frames[0], template_box, frame, coord, params)
     cv2.imshow("template tracking LK", LK_track)
     # template_track, template, template_start_point = blockBasedTracking(frame, template, template_start_point, cv2.TM_CCORR_NORMED)
     # bounding_rect.append((template_start_point[0], template_start_point[1], template.shape[1], template.shape[0]))
