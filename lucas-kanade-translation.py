@@ -156,7 +156,7 @@ def drawBound(params,template_box,frame):
 def getRect(val):
     val = val.replace("\t", ",")
     bounds = val.rstrip().split(",")
-    bounds = [int(x) for x in bounds]
+    bounds = [int(x)//4 for x in bounds]
     return bounds
 
 def LK_run():
@@ -168,7 +168,7 @@ def LK_run():
     groundtruth_rect = [getRect(x) for x in groundtruth_rect]
     for filename in filenames:
         frame = cv2.imread(os.path.join(path_vid+'img/', filename),0)
-        frames.append(frame)
+        frames.append(cv2.resize(frame, None, fx= 1/4, fy= 1/4, interpolation= cv2.INTER_LINEAR))
 
     frames = np.array(frames)
     #Get initial template
