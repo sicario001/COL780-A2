@@ -208,7 +208,7 @@ def LK_run():
     # print("coord",coord.shape,np.min(coord,axis=0),np.max(coord,axis=0))
     
     for i in range(1, len(frames)):
-        p = np.eye(3)
+        # p = np.eye(3)
         frame = frames[i]
         frame_pyr = getImgPyr(frame, pyr_layers)
         for layer in range(pyr_layers):
