@@ -3,10 +3,10 @@ from matplotlib.path import Path
 import numpy as np
 import os
 
-hyper_params_bolt = {"error":0.0001, "layers":1, "iterations":50, "block_based_init":False}
-hyper_params_car = {"error":0.0005, "layers":3, "iterations":10,"block_based_init":True}
-hyper_params_liquor = {"error":0.0005, "layers":3, "iterations":10, "block_based_init":True}
-hyper_params = hyper_params_bolt
+hyper_params_bolt = {"error":0.0001, "layers":1, "iterations":50, "block_based_init":False, "update-template":True, "translation-limit-factor":100}
+hyper_params_car = {"error":0.0005, "layers":3, "iterations":10,"block_based_init":True, "update-template":True, "translation-limit-factor":2}
+hyper_params_liquor = {"error":0.0005, "layers":3, "iterations":10, "block_based_init":True, "update-template":False, "translation-limit-factor":2}
+hyper_params = hyper_params_car
 
 
 
@@ -42,7 +42,7 @@ def getMeanIOUScore(bounding_rect, groundtruth_rect):
 
 def getInitialParams(frame, template, template_start_point, start_point, method):
     height, width  = template.shape[0], template.shape[1]
-    max_translation_limit = (height+width)//2
+    max_translation_limit = (height+width)//hyper_params["translation-limit-factor"]
     res = cv2.matchTemplate(frame, template, method)
     res_h, res_w = res.shape[0], res.shape[1]
     window_top_left = (max(0, start_point[0]-max_translation_limit), max(0, start_point[1]-max_translation_limit))
@@ -52,7 +52,11 @@ def getInitialParams(frame, template, template_start_point, start_point, method)
     # print(frame.shape)
     # print(res.shape)
     # print(template.shape)
-    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res, mask = mask)
+    if (hyper_params["update-template"]):
+        # Assuming small translation
+        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res, mask = mask)    
+    else:
+        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
     if (method==cv2.TM_SQDIFF or method==cv2.TM_SQDIFF_NORMED):
         top_left = min_loc 
     else:
@@ -63,7 +67,11 @@ def getInitialParams(frame, template, template_start_point, start_point, method)
     cv2.imshow("init", frame_tracking)
     k = cv2.waitKey(1)
     params = [[1, 0, top_left[0]-template_start_point[0]], [0, 1, top_left[1]-template_start_point[1]], [0, 0, 1]]
-    return params, new_template, top_left
+    if (hyper_params["update-template"]):
+        # Updating template at every frame
+        return params, new_template, top_left
+    else:
+        return params, template, top_left
 
 def checkConverge(p,delta_p,e):
     a = np.array([[0,0,1],[1,0,1],[0,1,1],[1,1,1]])
@@ -258,7 +266,7 @@ def getRectBound(params, template_box, frame):
 
 def LK_run():
     frames = []
-    path_vid = "A2/Bolt/"
+    path_vid = "A2/BlurCar2/"
     filenames = os.listdir(path_vid+'img/')
     groundtruth_file = open(path_vid+'groundtruth_rect.txt')
     groundtruth_rect = groundtruth_file.readlines()
