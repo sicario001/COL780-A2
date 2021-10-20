@@ -79,7 +79,7 @@ def blockBasedTracking(frame, template, template_start_point, method):
 
 frames = []
 path_vid = "A2/Bolt/"
-filenames = os.listdir(path_vid+'img/')
+filenames = sorted(os.listdir(path_vid+'img/'))
 groundtruth_file = open(path_vid+'groundtruth_rect.txt')
 groundtruth_rect = groundtruth_file.readlines()
 groundtruth_rect = [getRect(x) for x in groundtruth_rect]
@@ -109,5 +109,3 @@ for i in range(1, len(frames)):
         break
 print("mIOU: "+str(getMeanIOUScore(bounding_rect, groundtruth_rect)))
 cv2.destroyAllWindows()
-
-

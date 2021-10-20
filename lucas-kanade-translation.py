@@ -5,7 +5,7 @@ import os
 hyper_params_bolt = {"error":0.0001, "layers":1, "iterations":500}
 hyper_params_car = {"error":0.001, "layers":3, "iterations":500}
 hyper_params_liquor = {"error":0.001, "layers":3, "iterations":500}
-hyper_params = hyper_params_car
+hyper_params = hyper_params_liquor
 
 
 
@@ -232,7 +232,7 @@ def pyrDownParams(p):
 
 def LK_run():
     frames = []
-    path_vid = "A2/BlurCar2/"
+    path_vid = "A2/Liquor/"
     filenames = sorted(os.listdir(path_vid+'img/'))
     groundtruth_file = open(path_vid+'groundtruth_rect.txt')
     groundtruth_rect = groundtruth_file.readlines()

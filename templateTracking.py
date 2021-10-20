@@ -179,7 +179,7 @@ def blockBasedTracking(frame, template, template_start_point, method):
 if __name__ ==  "__main__":
     frames = []
     path_vid = "A2/BlurCar2/"
-    filenames = os.listdir(path_vid+'img/')
+    filenames = sorted(os.listdir(path_vid+'img/'))
     groundtruth_file = open(path_vid+'groundtruth_rect.txt')
     groundtruth_rect = groundtruth_file.readlines()
     groundtruth_rect = [getRect(x) for x in groundtruth_rect]

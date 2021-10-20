@@ -10,10 +10,13 @@ app = Flask(__name__,template_folder='./templates')
 camera = cv2.VideoCapture(0)
 template = None
 template_start_point = None
-method = cv2.TM_SQDIFF_NORMED
+blockMethod = cv2.TM_SQDIFF_NORMED
+trackMethod = "block"
+
 prev = time.time()
 capturing = True
 frame_rate = 10
+
 def track():
     global template,template_start_point,prev
     if template_start_point is None:
@@ -27,7 +30,10 @@ def track():
             success, frame = camera.read()  # read the camera frame
             prev = time.time()
             if template is not None:
-                frame,template,template_start_point = blockBasedTracking(frame, template, template_start_point, method)
+                if trackMethod == 'block':
+                    frame,template,template_start_point = blockBasedTracking(frame, template, template_start_point, blockMethod)
+                # else:
+                #     init_p, init_template, init_template_start_point,rect_bound,frame = affineLkTracking(coord_pyr,Jacobian_pyr,template_box,frame_0_pyr,frame,pyr_layers,init_template,template_start_point,init_template_start_point)
             ret, buffer = cv2.imencode('.jpg', frame)
             frame = buffer.tobytes()
             yield (b'--frame\r\n'
@@ -57,11 +63,11 @@ def reset():
 
 @app.route('/set/<mthd>')
 def set(mthd):
-    global method
+    global blockMethod
     if mthd=="sqdiff":
-        method = cv2.TM_SQDIFF
+        blockMethod = cv2.TM_SQDIFF
     if mthd=="norm":
-        method = cv2.TM_SQDIFF_NORMED
+        blockMethod = cv2.TM_SQDIFF_NORMED
     return redirect(url_for('index'), code=302)
 
 @app.route('/video_feed')

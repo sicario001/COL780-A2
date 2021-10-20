@@ -1,12 +1,11 @@
 import cv2
-from matplotlib.path import Path
 import numpy as np
 import os
 
 hyper_params_bolt = {"error":0.0001, "layers":1, "iterations":50, "block_based_init":False}
 hyper_params_car = {"error":0.0005, "layers":3, "iterations":10,"block_based_init":True}
 hyper_params_liquor = {"error":0.0005, "layers":3, "iterations":10, "block_based_init":True}
-hyper_params = hyper_params_bolt
+hyper_params = hyper_params_car
 
 
 
@@ -254,12 +253,39 @@ def getRectBound(params, template_box, frame):
     # print(warped_corner_points)
     frame_bound = cv2.rectangle(frame.copy(), start_point, end_point, (255, 0, 0), 2)
     cv2.imshow("rect-bound", frame_bound)
-    return (min_x, min_y, max_x-min_x, max_y-min_y)
+    return (min_x, min_y, max_x-min_x, max_y-min_y),frame_bound
+
+def affineLkInit(init_frame,pyr_layers,template_box):
+    coord_pyr = []
+    Jacobian_pyr = []
+    frame_0_pyr = getImgPyr(init_frame, pyr_layers)
+    for i in range(pyr_layers+1):
+        coord = getCoords(np.array(template_box//(1<<i)))
+        coord_pyr.append(coord)
+        Jacobian = getDeltaW_affine(coord)
+        Jacobian_pyr.append(Jacobian)
+    return frame_0_pyr,coord_pyr,Jacobian_pyr
+
+def affineLkTracking(coord_pyr,Jacobian_pyr,template_box,frame_0_pyr,frame,pyr_layers,init_template,template_start_point,init_template_start_point):
+    frame_pyr = getImgPyr(frame, pyr_layers)
+    init_p, init_template, init_template_start_point = getInitialParams(frame, init_template, template_start_point, init_template_start_point, cv2.TM_CCORR_NORMED)
+    if (hyper_params["block_based_init"]):
+        p = init_p
+    for layer in range(pyr_layers):
+        p = pyrDownParams(p)
+    for layer in range(pyr_layers, -1, -1):
+        p = iterate(frame_0_pyr[layer], frame_pyr[layer], coord_pyr[layer], p, Jacobian_pyr[layer], layer)
+        if (layer>0):
+            p = pyrUpParams(p)
+
+    cv2.imshow("template tracking LK", drawBound(p,template_box,frame))
+    rect_bound,frame_bound =  getRectBound(p,template_box, frame)
+    return init_p, init_template, init_template_start_point,rect_bound,frame_bound
 
 def LK_run():
     frames = []
-    path_vid = "A2/Bolt/"
-    filenames = os.listdir(path_vid+'img/')
+    path_vid = "A2/BlurCar2/"
+    filenames = sorted(os.listdir(path_vid+'img/'))
     groundtruth_file = open(path_vid+'groundtruth_rect.txt')
     groundtruth_rect = groundtruth_file.readlines()
     groundtruth_rect = [getRect(x) for x in groundtruth_rect]
@@ -276,16 +302,7 @@ def LK_run():
     template_box = [template_start_point, template_end_point]
     template_box = np.array(template_box)
     pyr_layers = hyper_params["layers"]
-    template_box_pyr = []
-    coord_pyr = []
-    Jacobian_pyr = []
-    frame_0_pyr = getImgPyr(frames[0], pyr_layers)
-    for i in range(pyr_layers+1):
-        template_box_pyr.append(template_box//(1<<i))
-        coord = getCoords(np.array(template_box_pyr[i]))
-        coord_pyr.append(coord)
-        Jacobian = getDeltaW_affine(coord)
-        Jacobian_pyr.append(Jacobian)
+    frame_0_pyr,coord_pyr,Jacobian_pyr = affineLkInit(frames[0],pyr_layers,template_box)
     # print("coord",coord.shape,np.min(coord,axis=0),np.max(coord,axis=0))
     init_template = template
     init_template_start_point = template_start_point
@@ -294,19 +311,7 @@ def LK_run():
     for i in range(1, len(frames)):
         print(i)
         frame = frames[i]
-        frame_pyr = getImgPyr(frame, pyr_layers)
-        init_p, init_template, init_template_start_point = getInitialParams(frame, init_template, template_start_point, init_template_start_point, cv2.TM_CCORR_NORMED)
-        if (hyper_params["block_based_init"]):
-            p = init_p
-        for layer in range(pyr_layers):
-            p = pyrDownParams(p)
-        for layer in range(pyr_layers, -1, -1):
-            p = iterate(frame_0_pyr[layer], frame_pyr[layer], coord_pyr[layer], p, Jacobian_pyr[layer], layer)
-            if (layer>0):
-                p = pyrUpParams(p)
-
-        cv2.imshow("template tracking LK", drawBound(p,template_box,frame))
-        rect_bound = getRectBound(p,template_box, frame)
+        init_p, init_template, init_template_start_point,rect_bound,frame_bound = affineLkTracking(coord_pyr,Jacobian_pyr,template_box,frame_0_pyr,frame,pyr_layers,init_template,template_start_point,init_template_start_point)
         bounding_rect.append(rect_bound)
         start_point = (groundtruth_rect[i][0], groundtruth_rect[i][1])
         end_point = (groundtruth_rect[i][0]+groundtruth_rect[i][2], groundtruth_rect[i][1]+groundtruth_rect[i][3])
