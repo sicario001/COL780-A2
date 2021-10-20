@@ -6,7 +6,7 @@ from numpy.core.fromnumeric import shape
 
 hyper_parameters_car = {"update-template":True, "translation-limit-factor":2}
 hyper_parameters_bolt = {"update-template":True, "translation-limit-factor":100}
-hyper_parameters_liquor = {"update-template":True, "translation-limit-factor":2}
+hyper_parameters_liquor = {"update-template":False, "translation-limit-factor":2}
 hyper_parameters = hyper_parameters_bolt
 #returns bounding rectangle as x, y, w, h (w is along x and h is along y)
 def getRect(val):
