@@ -2,6 +2,43 @@ import cv2
 import numpy as np
 import os
 
+
+hyper_params_bolt = {"error":0.0001, "layers":1, "iterations":500}
+hyper_params_car = {"error":0.001, "layers":0, "iterations":500}
+hyper_params_liquor = {"error":0.001, "layers":1, "iterations":500}
+hyper_params = hyper_params_car
+
+
+def bb_intersection_over_union(boxA, boxB):
+	# determine the (x, y)-coordinates of the intersection rectangle
+	xA = max(boxA[0], boxB[0])
+	yA = max(boxA[1], boxB[1])
+	xB = min(boxA[2], boxB[2])
+	yB = min(boxA[3], boxB[3])
+	# compute the area of intersection rectangle
+	interArea = max(0, xB - xA + 1) * max(0, yB - yA + 1)
+	# compute the area of both the prediction and ground-truth
+	# rectangles
+	boxAArea = (boxA[2] - boxA[0] + 1) * (boxA[3] - boxA[1] + 1)
+	boxBArea = (boxB[2] - boxB[0] + 1) * (boxB[3] - boxB[1] + 1)
+	# compute the intersection over union by taking the intersection
+	# area and dividing it by the sum of prediction + ground-truth
+	# areas - the interesection area
+	iou = interArea / float(boxAArea + boxBArea - interArea)
+	# return the intersection over union value
+	return iou
+
+def getMeanIOUScore(bounding_rect, groundtruth_rect):
+    score = 0.0
+    N = min(len(bounding_rect), len(groundtruth_rect))
+    for i in range(1, N):
+        a = [bounding_rect[i][0], bounding_rect[i][1], bounding_rect[i][0]+bounding_rect[i][2], bounding_rect[i][1]+bounding_rect[i][3]]
+        b = [groundtruth_rect[i][0], groundtruth_rect[i][1], groundtruth_rect[i][0]+groundtruth_rect[i][2], groundtruth_rect[i][1]+groundtruth_rect[i][3]]
+        score += bb_intersection_over_union(a, b)
+        # print(score)
+    return score/(N-1)
+
+
 def checkConverge(p,delta_p,e):
     a = np.array([[0,0,1],[1,0,1],[0,1,1],[1,1,1]])
     w_p = warp(a,p)
@@ -13,29 +50,29 @@ def checkConverge(p,delta_p,e):
 def bilinearInterpolate(arr,coord):
     x = np.asarray(coord[:,0])
     y = np.asarray(coord[:,1])
-    return arr[y.astype('int32'),x.astype('int32')]
-    # x0 = np.floor(x).astype('int32')
-    # x1 = x0 + 1
-    # y0 = np.floor(y).astype('int32')
-    # y1 = y0 + 1
+    # return arr[y.astype('int32'),x.astype('int32')]
+    x0 = np.floor(x).astype('int32')
+    x1 = x0 + 1
+    y0 = np.floor(y).astype('int32')
+    y1 = y0 + 1
 
-    # x0 = np.clip(x0, 0, arr.shape[1]-1)
-    # x1 = np.clip(x1, 0, arr.shape[1]-1)
-    # y0 = np.clip(y0, 0, arr.shape[0]-1)
-    # y1 = np.clip(y1, 0, arr.shape[0]-1)
+    x0 = np.clip(x0, 0, arr.shape[1]-1)
+    x1 = np.clip(x1, 0, arr.shape[1]-1)
+    y0 = np.clip(y0, 0, arr.shape[0]-1)
+    y1 = np.clip(y1, 0, arr.shape[0]-1)
 
-    # wa = (x1-x) * (y1-y)
-    # wb = (x1-x) * (y-y0)
-    # wc = (x-x0) * (y1-y)
-    # wd = (x-x0) * (y-y0)
+    wa = (x1-x) * (y1-y)
+    wb = (x1-x) * (y-y0)
+    wc = (x-x0) * (y1-y)
+    wd = (x-x0) * (y-y0)
 
-    # if len(arr.shape) == 4:
-    #     wa = np.expand_dims(wa,(1,2))
-    #     wb = np.expand_dims(wb,(1,2))
-    #     wc = np.expand_dims(wc,(1,2))
-    #     wd = np.expand_dims(wd,(1,2))
+    if len(arr.shape) == 4:
+        wa = np.expand_dims(wa,(1,2))
+        wb = np.expand_dims(wb,(1,2))
+        wc = np.expand_dims(wc,(1,2))
+        wd = np.expand_dims(wd,(1,2))
 
-    # return wa*arr[y0,x0] + wb*arr[y1,x0] + wc*arr[y0,x1] + wd*arr[y1,x1]
+    return wa*arr[y0,x0] + wb*arr[y1,x0] + wc*arr[y0,x1] + wd*arr[y1,x1]
 
 def warp(coord,p):
     # coord_n   |T| X 3
@@ -114,7 +151,7 @@ def getDeltaP(prev_frame,curr_frame,coord_p,p):
     # print("deltaI_W_T",deltaI_W_T.shape)
     H = np.sum(deltaI_W_T @ deltaI_W,axis=0)                    # 9 X 9
     # print("H",H.shape)
-    H_inv = np.linalg.inv(H)
+    H_inv = np.linalg.pinv(H)
     # print("H_inv",H_inv.shape)
     diff = getDiff(prev_frame,curr_frame,coord_p,p)             # |T| X 1
     # print("diff",diff.shape)
@@ -122,21 +159,22 @@ def getDeltaP(prev_frame,curr_frame,coord_p,p):
     # print("deltaP",deltaP.shape)
 
     deltaP = np.reshape(deltaP,(3,3))
-    print(np.sum(H_inv))
-    assert False
+    # print(np.sum(H_inv))
+    # assert False
     # bounding_box_new = warp(np.concatenate(bounding_box,np.ones(1,4),axis=1),p)
 
     return deltaP
 
-def iterate(prev_frame,curr_frame,coord_p,p):
-    for i in range(100):
+def iterate(prev_frame,curr_frame,coord_p,p, layer):
+    for i in range(hyper_params["iterations"]):
         deltaP = getDeltaP(prev_frame,curr_frame,coord_p,p)
         # print(deltaP)
-        # if checkConverge(p,deltaP,0.0001):
-        #     break
+        if i>1 and np.square(deltaP).sum() < hyper_params["error"] / (1 << (2*layer)):
+            break
+
         p+=deltaP
         # print(np.reshape(p,(9,)))
-    print(np.around(p))
+    # print(np.around(p))
     return p
 
 def drawBound(params,template_box,frame):
@@ -151,6 +189,35 @@ def getRect(val):
     bounds = val.rstrip().split(",")
     bounds = [int(x) for x in bounds]
     return bounds
+def getImgPyr(img, pyr_layers):
+    pyr = [img]
+    for i in range(pyr_layers):
+        pyr.append(cv2.pyrDown(pyr[-1]))
+    return pyr
+def pyrUpParams(p):
+    scale = np.array([[1, 1, 2], [1, 1, 2], [1, 1, 1]])
+    return p*scale
+
+def pyrDownParams(p):
+    scale = np.array([[1, 1, 0.5], [1, 1, 0.5], [1, 1, 1]])
+    return p*scale
+
+def getRectBound(params, template_box, frame):
+    corner_points = [template_box[0], [template_box[0][0], template_box[1][1]], template_box[1], [template_box[1][0], template_box[0][1]]]
+    warped_corner_points = warp(np.concatenate([np.array(corner_points),np.ones([4,1])],axis=1),params).astype('int32')
+    max_x = np.max(warped_corner_points[:, 0])
+    max_y = np.max(warped_corner_points[:, 1])
+    min_x = np.min(warped_corner_points[:, 0])
+    min_y = np.min(warped_corner_points[:, 1])
+
+    start_point = (min_x, min_y)
+    end_point = (max_x, max_y)
+    # print(start_point)
+    # print(end_point)
+    # print(warped_corner_points)
+    frame_bound = cv2.rectangle(frame.copy(), start_point, end_point, (255, 0, 0), 2)
+    cv2.imshow("rect-bound", frame_bound)
+    return (min_x, min_y, max_x-min_x, max_y-min_y)
 
 def LK_run():
     frames = []
@@ -159,6 +226,7 @@ def LK_run():
     groundtruth_file = open(path_vid+'groundtruth_rect.txt')
     groundtruth_rect = groundtruth_file.readlines()
     groundtruth_rect = [getRect(x) for x in groundtruth_rect]
+    bounding_rect = [groundtruth_rect[0]]
     for filename in filenames:
         frame = cv2.imread(os.path.join(path_vid+'img/', filename),0)
         frames.append(frame)
@@ -166,20 +234,35 @@ def LK_run():
     frames = np.array(frames)
     #Get initial template
     template = frames[0][groundtruth_rect[0][1]:(groundtruth_rect[0][1]+groundtruth_rect[0][3]), groundtruth_rect[0][0]:(groundtruth_rect[0][0]+groundtruth_rect[0][2])].copy()
-    template_start_point = (groundtruth_rect[0][0], groundtruth_rect[0][1])
-    template_end_point = (groundtruth_rect[0][0]+groundtruth_rect[0][2], groundtruth_rect[0][1]+groundtruth_rect[0][3])
-    template_box = (template_start_point, template_end_point)
-    print(template_box)
-    coord = getCoords(np.array([template_start_point,template_end_point]))
-    print("coord",coord.shape,np.min(coord,axis=0),np.max(coord,axis=0))
+    template_start_point = [groundtruth_rect[0][0], groundtruth_rect[0][1]]
+    template_end_point = [groundtruth_rect[0][0]+groundtruth_rect[0][2], groundtruth_rect[0][1]+groundtruth_rect[0][3]]
+    template_box = [template_start_point, template_end_point]
+    template_box = np.array(template_box)
+    pyr_layers = hyper_params["layers"]
+    template_box_pyr = []
+    coord_pyr = []
+    frame_0_pyr = getImgPyr(frames[0], pyr_layers)
+    for i in range(pyr_layers+1):
+        template_box_pyr.append(template_box//(1<<i))
+        coord = getCoords(np.array(template_box_pyr[i]))
+        coord_pyr.append(coord)
+
+
     p = np.eye(3)
     for i in range(1, len(frames)):
         frame = frames[i]
-        p = iterate(frames[0], frame, coord, p)
+        frame_pyr = getImgPyr(frame, pyr_layers)
+        for layer in range(pyr_layers):
+            p = pyrDownParams(p)
+        for layer in range(pyr_layers, -1, -1):
+            p = iterate(frame_0_pyr[layer], frame_pyr[layer], coord_pyr[layer], p,layer)
+            if (layer>0):
+                p = pyrUpParams(p)
         cv2.imshow("template tracking LK", drawBound(p,template_box,frame))
-        # template_track, template, template_start_point = blockBasedTracking(frame, template, template_start_point, cv2.TM_CCORR_NORMED)
-        # bounding_rect.append((template_start_point[0], template_start_point[1], template.shape[1], template.shape[0]))
-        # cv2.imshow("template tracking block based", template_track)
+
+        rect_bound = getRectBound(p,template_box, frame)
+        bounding_rect.append(rect_bound)
+
         start_point = (groundtruth_rect[i][0], groundtruth_rect[i][1])
         end_point = (groundtruth_rect[i][0]+groundtruth_rect[i][2], groundtruth_rect[i][1]+groundtruth_rect[i][3])
         frame = cv2.rectangle(frame, start_point, end_point, (255, 0, 0), 2)
@@ -187,7 +270,7 @@ def LK_run():
         k = cv2.waitKey(0)
         if k==27:
             break
-    # print("mIOU: "+str(getMeanIOUScore(bounding_rect, groundtruth_rect)))
+    print("mIOU: "+str(getMeanIOUScore(bounding_rect, groundtruth_rect)))
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
