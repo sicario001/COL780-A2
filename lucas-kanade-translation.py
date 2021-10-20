@@ -1,5 +1,4 @@
 import cv2
-from matplotlib.path import Path
 import numpy as np
 import os
 
@@ -135,19 +134,20 @@ def getDeltaP(prev_frame,curr_frame,coord_p,p, Jacobian):
 
     return deltaP
 
-def iterate(prev_frame,curr_frame,coord_p,p, Jacobian):
+def iterate(prev_frame,curr_frame,coord_p,p, Jacobian,layer):
     # p = np.eye(3)
-    for i in range(200):
+    for i in range(500):
         deltaP = getDeltaP(prev_frame,curr_frame,coord_p,p, Jacobian)
         # print(deltaP)
-        if checkConverge(p,deltaP,0.01):
+        if i>1 and np.square(deltaP).sum() < 0.001 / (1 << (2*layer)):
             break
-        norm = np.sum(deltaP**2)
+
         # print(norm)
         # print(i)
         p+=deltaP
         # print(np.reshape(p,(9,)))
     # print(np.around(p))
+    print(i)
     return p
 
 def drawBound(params,template_box,frame):
@@ -180,7 +180,7 @@ def pyrDownParams(p):
 def LK_run():
     frames = []
     path_vid = "A2/BlurCar2/"
-    filenames = os.listdir(path_vid+'img/')
+    filenames = sorted(os.listdir(path_vid+'img/'))
     groundtruth_file = open(path_vid+'groundtruth_rect.txt')
     groundtruth_rect = groundtruth_file.readlines()
     groundtruth_rect = [getRect(x) for x in groundtruth_rect]
@@ -214,7 +214,7 @@ def LK_run():
         for layer in range(pyr_layers):
             p = pyrDownParams(p)
         for layer in range(pyr_layers, -1, -1):
-            p = iterate(frame_0_pyr[layer], frame_pyr[layer], coord_pyr[layer], p, Jacobian_pyr[layer])
+            p = iterate(frame_0_pyr[layer], frame_pyr[layer], coord_pyr[layer], p, Jacobian_pyr[layer],layer)
             if (layer>0):
                 p = pyrUpParams(p)
        
