@@ -5,7 +5,7 @@ from numpy.core.fromnumeric import shape
 
 
 hyper_parameters_car = {"update-template":False, "translation-limit-factor":2, "scale-low":0.6, "scale-high":1.5, "scale-increment":0.05}
-hyper_parameters_bolt = {"update-template":True, "translation-limit-factor":100,"scale-low":0.6, "scale-high":1.5, "scale-increment":0.05}
+hyper_parameters_bolt = {"update-template":True, "translation-limit-factor":100,"scale-low":1.0, "scale-high":1.05, "scale-increment":0.05}
 hyper_parameters_liquor = {"update-template":False, "translation-limit-factor":2, "scale-low":0.6, "scale-high":1.5, "scale-increment":0.05}
 hyper_parameters = hyper_parameters_liquor
 #returns bounding rectangle as x, y, w, h (w is along x and h is along y)
@@ -88,7 +88,7 @@ def blockBasedTracking(frame, template, template_start_point, method):
         # Updating template at every frame
         return frame_tracking, new_template, top_left
     else:
-        return frame_tracking, template, top_left
+        return frame_tracking, new_template, top_left
     
     
 
@@ -112,8 +112,10 @@ template_end_point = (groundtruth_rect[0][0]+groundtruth_rect[0][2], groundtruth
 template_box = (template_start_point, template_end_point)
 for i in range(1, len(frames)):
     frame = frames[i]
-    template_track, template, template_start_point = blockBasedTracking(frame, template, template_start_point, cv2.TM_CCORR_NORMED)
-    bounding_rect.append((template_start_point[0], template_start_point[1], template.shape[1], template.shape[0]))
+    template_track, matched_template, template_start_point = blockBasedTracking(frame, template, template_start_point, cv2.TM_CCORR_NORMED)
+    bounding_rect.append((template_start_point[0], template_start_point[1], matched_template.shape[1], matched_template.shape[0]))
+    if(hyper_parameters["update-template"]):
+        template = matched_template
     cv2.imshow("template tracking block based", template_track)
     start_point = (groundtruth_rect[i][0], groundtruth_rect[i][1])
     end_point = (groundtruth_rect[i][0]+groundtruth_rect[i][2], groundtruth_rect[i][1]+groundtruth_rect[i][3])
