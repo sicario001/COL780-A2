@@ -3,25 +3,67 @@ from matplotlib.path import Path
 import numpy as np
 import os
 
+hyper_params_bolt = {"error":0.0001, "layers":1, "iterations":50, "block_based_init":False}
+hyper_params_car = {"error":0.0005, "layers":3, "iterations":10,"block_based_init":True}
+hyper_params_liquor = {"error":0.0005, "layers":3, "iterations":10, "block_based_init":True}
+hyper_params = hyper_params_bolt
 
-def getInitialParams(frame, template, template_start_point, method):
+
+
+def bb_intersection_over_union(boxA, boxB):
+	# determine the (x, y)-coordinates of the intersection rectangle
+	xA = max(boxA[0], boxB[0])
+	yA = max(boxA[1], boxB[1])
+	xB = min(boxA[2], boxB[2])
+	yB = min(boxA[3], boxB[3])
+	# compute the area of intersection rectangle
+	interArea = max(0, xB - xA + 1) * max(0, yB - yA + 1)
+	# compute the area of both the prediction and ground-truth
+	# rectangles
+	boxAArea = (boxA[2] - boxA[0] + 1) * (boxA[3] - boxA[1] + 1)
+	boxBArea = (boxB[2] - boxB[0] + 1) * (boxB[3] - boxB[1] + 1)
+	# compute the intersection over union by taking the intersection
+	# area and dividing it by the sum of prediction + ground-truth
+	# areas - the interesection area
+	iou = interArea / float(boxAArea + boxBArea - interArea)
+	# return the intersection over union value
+	return iou
+
+def getMeanIOUScore(bounding_rect, groundtruth_rect):
+    score = 0.0
+    N = min(len(bounding_rect), len(groundtruth_rect))
+    for i in range(1, N):
+        a = [bounding_rect[i][0], bounding_rect[i][1], bounding_rect[i][0]+bounding_rect[i][2], bounding_rect[i][1]+bounding_rect[i][3]]
+        b = [groundtruth_rect[i][0], groundtruth_rect[i][1], groundtruth_rect[i][0]+groundtruth_rect[i][2], groundtruth_rect[i][1]+groundtruth_rect[i][3]]
+        score += bb_intersection_over_union(a, b)
+        # print(score)
+    return score/(N-1)
+
+
+def getInitialParams(frame, template, template_start_point, start_point, method):
     height, width  = template.shape[0], template.shape[1]
+    max_translation_limit = (height+width)//2
     res = cv2.matchTemplate(frame, template, method)
     res_h, res_w = res.shape[0], res.shape[1]
+    window_top_left = (max(0, start_point[0]-max_translation_limit), max(0, start_point[1]-max_translation_limit))
+    window_bottom_right = (min(res_w, start_point[0]+max_translation_limit), min(res_h, start_point[1]+max_translation_limit))
+    mask = np.zeros((res_h, res_w), dtype="uint8")
+    cv2.rectangle(mask, window_top_left, window_bottom_right, 255, -1)
     # print(frame.shape)
     # print(res.shape)
     # print(template.shape)
-    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res, mask = mask)
     if (method==cv2.TM_SQDIFF or method==cv2.TM_SQDIFF_NORMED):
         top_left = min_loc 
     else:
         top_left = max_loc
     bottom_right = (top_left[0] + width, top_left[1] + height)
     frame_tracking = cv2.rectangle(frame.copy(), top_left, bottom_right, (255, 0, 0), 2)
+    new_template = frame[top_left[1]:bottom_right[1], top_left[0]:bottom_right[0]].copy()
     cv2.imshow("init", frame_tracking)
     k = cv2.waitKey(1)
     params = [[1, 0, top_left[0]-template_start_point[0]], [0, 1, top_left[1]-template_start_point[1]], [0, 0, 1]]
-    return params
+    return params, new_template, top_left
 
 def checkConverge(p,delta_p,e):
     a = np.array([[0,0,1],[1,0,1],[0,1,1],[1,1,1]])
@@ -156,10 +198,10 @@ def getDeltaP(prev_frame,curr_frame,coord_p,p, Jacobian):
     return deltaP
 
 def iterate(prev_frame,curr_frame,coord_p,p, Jacobian, layer):
-    for i in range(10*(1<<layer)):
+    for i in range(hyper_params["iterations"]*(1<<layer)):
         deltaP = getDeltaP(prev_frame,curr_frame,coord_p,p, Jacobian)
         # print(deltaP)
-        if i>1 and np.square(deltaP).sum() < 0.0005 / (1 << (2*layer)):
+        if i>1 and np.square(deltaP).sum() < hyper_params["error"] / (1 << (2*layer)):
             print(i)
             break
         norm = np.sum(deltaP**2)
@@ -197,13 +239,31 @@ def pyrDownParams(p):
     scale = np.array([[1, 1, 0.5], [1, 1, 0.5], [1, 1, 1]])
     return p*scale
 
+def getRectBound(params, template_box, frame):
+    corner_points = [template_box[0], [template_box[0][0], template_box[1][1]], template_box[1], [template_box[1][0], template_box[0][1]]]
+    warped_corner_points = warp(np.concatenate([np.array(corner_points),np.ones([4,1])],axis=1),params).astype('int32')
+    max_x = np.max(warped_corner_points[:, 0])
+    max_y = np.max(warped_corner_points[:, 1])
+    min_x = np.min(warped_corner_points[:, 0])
+    min_y = np.min(warped_corner_points[:, 1])
+
+    start_point = (min_x, min_y)
+    end_point = (max_x, max_y)
+    # print(start_point)
+    # print(end_point)
+    # print(warped_corner_points)
+    frame_bound = cv2.rectangle(frame.copy(), start_point, end_point, (255, 0, 0), 2)
+    cv2.imshow("rect-bound", frame_bound)
+    return (min_x, min_y, max_x-min_x, max_y-min_y)
+
 def LK_run():
     frames = []
-    path_vid = "A2/Liquor/"
+    path_vid = "A2/Bolt/"
     filenames = os.listdir(path_vid+'img/')
     groundtruth_file = open(path_vid+'groundtruth_rect.txt')
     groundtruth_rect = groundtruth_file.readlines()
     groundtruth_rect = [getRect(x) for x in groundtruth_rect]
+    bounding_rect = [groundtruth_rect[0]]
     for filename in filenames:
         frame = cv2.imread(os.path.join(path_vid+'img/', filename),0)
         frames.append(frame)
@@ -215,7 +275,7 @@ def LK_run():
     template_end_point = [groundtruth_rect[0][0]+groundtruth_rect[0][2], groundtruth_rect[0][1]+groundtruth_rect[0][3]]
     template_box = [template_start_point, template_end_point]
     template_box = np.array(template_box)
-    pyr_layers = 3
+    pyr_layers = hyper_params["layers"]
     template_box_pyr = []
     coord_pyr = []
     Jacobian_pyr = []
@@ -227,31 +287,35 @@ def LK_run():
         Jacobian = getDeltaW_affine(coord)
         Jacobian_pyr.append(Jacobian)
     # print("coord",coord.shape,np.min(coord,axis=0),np.max(coord,axis=0))
+    init_template = template
+    init_template_start_point = template_start_point
+    init_p = np.eye(3)
     p = np.eye(3)
     for i in range(1, len(frames)):
         print(i)
         frame = frames[i]
         frame_pyr = getImgPyr(frame, pyr_layers)
-        p = getInitialParams(frame, template, template_start_point, cv2.TM_CCORR_NORMED)
+        init_p, init_template, init_template_start_point = getInitialParams(frame, init_template, template_start_point, init_template_start_point, cv2.TM_CCORR_NORMED)
+        if (hyper_params["block_based_init"]):
+            p = init_p
         for layer in range(pyr_layers):
             p = pyrDownParams(p)
         for layer in range(pyr_layers, -1, -1):
             p = iterate(frame_0_pyr[layer], frame_pyr[layer], coord_pyr[layer], p, Jacobian_pyr[layer], layer)
             if (layer>0):
                 p = pyrUpParams(p)
-       
+
         cv2.imshow("template tracking LK", drawBound(p,template_box,frame))
-        # template_track, template, template_start_point = blockBasedTracking(frame, template, template_start_point, cv2.TM_CCORR_NORMED)
-        # bounding_rect.append((template_start_point[0], template_start_point[1], template.shape[1], template.shape[0]))
-        # cv2.imshow("template tracking block based", template_track)
+        rect_bound = getRectBound(p,template_box, frame)
+        bounding_rect.append(rect_bound)
         start_point = (groundtruth_rect[i][0], groundtruth_rect[i][1])
         end_point = (groundtruth_rect[i][0]+groundtruth_rect[i][2], groundtruth_rect[i][1]+groundtruth_rect[i][3])
         frame = cv2.rectangle(frame, start_point, end_point, (255, 0, 0), 2)
-        # cv2.imshow("template tracking groundtruth", frame)
+        cv2.imshow("template tracking groundtruth", frame)
         k = cv2.waitKey(1)
-        # if k==27:
-        #     break
-    # print("mIOU: "+str(getMeanIOUScore(bounding_rect, groundtruth_rect)))
+        if k==27:
+            break
+    print("mIOU: "+str(getMeanIOUScore(bounding_rect, groundtruth_rect)))
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
