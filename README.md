@@ -15,7 +15,9 @@
 - `python template-tracking-translation.py`
 #### Part 4
 - Code is in `live-demo.py`
-- ```
-     export FLASK_APP=live-demo
-     flask run
 ```
+export FLASK_APP=live-demo
+flask run
+```
+
+- Use the set scale field to resize the template image.
