@@ -2,10 +2,11 @@ import cv2
 import numpy as np
 import os
 
-hyper_params_bolt = {"error":0.0001, "layers":1, "iterations":50, "block_based_init":False, "update-template":True, "translation-limit-factor":100}
-hyper_params_car = {"error":0.0005, "layers":3, "iterations":10,"block_based_init":True, "update-template":True, "translation-limit-factor":2}
-hyper_params_liquor = {"error":0.0005, "layers":3, "iterations":10, "block_based_init":True, "update-template":False, "translation-limit-factor":2}
-hyper_params = hyper_params_car
+hyper_params_bolt = {"error":0.0001, "layers":1, "iterations":50, "block_based_init":False, "update-template":True, "translation-limit-factor":100, "scale-low":1.0, "scale-high":1.05, "scale-increment":0.05}
+hyper_params_car = {"error":0.0005, "layers":3, "iterations":5,"block_based_init":True, "update-template":False, "translation-limit-factor":2, "scale-low":0.6, "scale-high":1.7, "scale-increment":0.05}
+hyper_params_liquor = {"error":0.0005, "layers":3, "iterations":5, "block_based_init":True, "update-template":False, "translation-limit-factor":2, "scale-low":0.6, "scale-high":1.7, "scale-increment":0.05}
+hyper_params = hyper_params_bolt
+
 
 
 
