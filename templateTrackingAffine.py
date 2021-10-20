@@ -40,37 +40,61 @@ def getMeanIOUScore(bounding_rect, groundtruth_rect):
 
 
 def getInitialParams(frame, template, template_start_point, start_point, method):
-    height, width  = template.shape[0], template.shape[1]
-    max_translation_limit = (height+width)//hyper_params["translation-limit-factor"]
-    res = cv2.matchTemplate(frame, template, method)
-    res_h, res_w = res.shape[0], res.shape[1]
-    window_top_left = (max(0, start_point[0]-max_translation_limit), max(0, start_point[1]-max_translation_limit))
-    window_bottom_right = (min(res_w, start_point[0]+max_translation_limit), min(res_h, start_point[1]+max_translation_limit))
-    mask = np.zeros((res_h, res_w), dtype="uint8")
-    cv2.rectangle(mask, window_top_left, window_bottom_right, 255, -1)
-    # print(frame.shape)
-    # print(res.shape)
-    # print(template.shape)
-    if (hyper_params["update-template"]):
-        # Assuming small translation
-        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res, mask = mask)    
-    else:
-        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
-    if (method==cv2.TM_SQDIFF or method==cv2.TM_SQDIFF_NORMED):
-        top_left = min_loc 
-    else:
-        top_left = max_loc
-    bottom_right = (top_left[0] + width, top_left[1] + height)
+    best = None
+    scale = hyper_params["scale-low"]
+    N = (hyper_params["scale-high"]-hyper_params["scale-low"])//hyper_params["scale-increment"]
+    for i in range(int(N)):
+        template_scale = cv2.resize(template.copy(), None, fx= scale, fy= scale, interpolation= cv2.INTER_LINEAR)
+        height, width  = template_scale.shape[0], template_scale.shape[1]
+        max_translation_limit = (height+width)//hyper_params["translation-limit-factor"]
+        
+        res = cv2.matchTemplate(frame, template_scale, method)
+        res_h, res_w = res.shape[0], res.shape[1]
+        # print(frame.shape)
+        # print(res.shape)
+        # print(template.shape)
+        window_top_left = (max(0, template_start_point[0]-max_translation_limit), max(0, template_start_point[1]-max_translation_limit))
+        window_bottom_right = (min(res_w, template_start_point[0]+max_translation_limit), min(res_h, template_start_point[1]+max_translation_limit))
+        mask = np.zeros((res_h, res_w), dtype="uint8")
+        cv2.rectangle(mask, window_top_left, window_bottom_right, 255, -1)
+        if (hyper_params["update-template"]):
+            # Assuming small translation
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res, mask = mask)    
+        else:
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+        if (method==cv2.TM_SQDIFF or method==cv2.TM_SQDIFF_NORMED):
+            top_left = min_loc 
+        else:
+            top_left = max_loc
+        bottom_right = (top_left[0] + width, top_left[1] + height)
+        if (method==cv2.TM_SQDIFF or method==cv2.TM_SQDIFF_NORMED):
+            if (best==None or min_val<best[0]):
+                best = [min_val, scale, top_left, bottom_right]
+        else:
+            if (best==None or max_val>best[0]):
+                best = [max_val, scale, top_left, bottom_right]
+
+        scale +=hyper_params["scale-increment"]
+    top_left, bottom_right = best[2], best[3]
     frame_tracking = cv2.rectangle(frame.copy(), top_left, bottom_right, (255, 0, 0), 2)
     new_template = frame[top_left[1]:bottom_right[1], top_left[0]:bottom_right[0]].copy()
-    cv2.imshow("init", frame_tracking)
-    k = cv2.waitKey(1)
-    params = [[1, 0, top_left[0]-template_start_point[0]], [0, 1, top_left[1]-template_start_point[1]], [0, 0, 1]]
+
+
+    pts1 = np.float32([[template_start_point[0], template_start_point[1]],
+                   [template_start_point[0]+template.shape[1], template_start_point[1]+template.shape[0]], 
+                   [template_start_point[0], template_start_point[1]+template.shape[0]]])
+  
+    pts2 = np.float32([[top_left[0], top_left[1]],
+                   [bottom_right[0], bottom_right[1]], 
+                   [top_left[0], bottom_right[1]]])
+  
+    params = cv2.getAffineTransform(pts1, pts2)
+    params = np.vstack([params, [0, 0, 1]])
     if (hyper_params["update-template"]):
         # Updating template at every frame
         return params, new_template, top_left
     else:
-        return params, template, top_left
+        return params, new_template, top_left
 
 def checkConverge(p,delta_p,e):
     a = np.array([[0,0,1],[1,0,1],[0,1,1],[1,1,1]])
@@ -276,7 +300,9 @@ def affineLkInit(init_frame,pyr_layers,template_box):
 
 def affineLkTracking(coord_pyr,Jacobian_pyr,template_box,frame_0_pyr,frame,pyr_layers,init_template,template_start_point,init_template_start_point):
     frame_pyr = getImgPyr(frame, pyr_layers)
-    init_p, init_template, init_template_start_point = getInitialParams(frame, init_template, template_start_point, init_template_start_point, cv2.TM_CCORR_NORMED)
+    init_p, init_matched_template, init_template_start_point = getInitialParams(frame, init_template, template_start_point, init_template_start_point, cv2.TM_CCORR_NORMED)
+    if(hyper_params["update-template"]):
+        init_template = init_matched_template
     if (hyper_params["block_based_init"]):
         p = init_p
     for layer in range(pyr_layers):
