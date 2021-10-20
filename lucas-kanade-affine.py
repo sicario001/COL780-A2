@@ -3,6 +3,26 @@ from matplotlib.path import Path
 import numpy as np
 import os
 
+
+def getInitialParams(frame, template, template_start_point, method):
+    height, width  = template.shape[0], template.shape[1]
+    res = cv2.matchTemplate(frame, template, method)
+    res_h, res_w = res.shape[0], res.shape[1]
+    # print(frame.shape)
+    # print(res.shape)
+    # print(template.shape)
+    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+    if (method==cv2.TM_SQDIFF or method==cv2.TM_SQDIFF_NORMED):
+        top_left = min_loc 
+    else:
+        top_left = max_loc
+    bottom_right = (top_left[0] + width, top_left[1] + height)
+    frame_tracking = cv2.rectangle(frame.copy(), top_left, bottom_right, (255, 0, 0), 2)
+    cv2.imshow("init", frame_tracking)
+    k = cv2.waitKey(1)
+    params = [[1, 0, top_left[0]-template_start_point[0]], [0, 1, top_left[1]-template_start_point[1]], [0, 0, 1]]
+    return params
+
 def checkConverge(p,delta_p,e):
     a = np.array([[0,0,1],[1,0,1],[0,1,1],[1,1,1]])
     w_p = warp(a,p)
@@ -135,11 +155,12 @@ def getDeltaP(prev_frame,curr_frame,coord_p,p, Jacobian):
 
     return deltaP
 
-def iterate(prev_frame,curr_frame,coord_p,p, Jacobian):
-    for i in range(50):
+def iterate(prev_frame,curr_frame,coord_p,p, Jacobian, layer):
+    for i in range(10*(1<<layer)):
         deltaP = getDeltaP(prev_frame,curr_frame,coord_p,p, Jacobian)
         # print(deltaP)
-        if checkConverge(p,deltaP,0.001):
+        if i>1 and np.square(deltaP).sum() < 0.0005 / (1 << (2*layer)):
+            print(i)
             break
         norm = np.sum(deltaP**2)
         # print(norm)
@@ -153,7 +174,7 @@ def drawBound(params,template_box,frame):
     corner_points = [template_box[0], [template_box[0][0], template_box[1][1]], template_box[1], [template_box[1][0], template_box[0][1]]]
     warped_corner_points = warp(np.concatenate([np.array(corner_points),np.ones([4,1])],axis=1),params).astype('int32')
     warped_corner_points = warped_corner_points.reshape((-1, 1, 2))
-    print(warped_corner_points)
+    # print(warped_corner_points)
     # print(warped_corner_points,corner_points)
     return cv2.polylines(frame.copy(), [warped_corner_points], True, (255, 0, 0), 2)
 
@@ -178,7 +199,7 @@ def pyrDownParams(p):
 
 def LK_run():
     frames = []
-    path_vid = "A2/BlurCar2/"
+    path_vid = "A2/Liquor/"
     filenames = os.listdir(path_vid+'img/')
     groundtruth_file = open(path_vid+'groundtruth_rect.txt')
     groundtruth_rect = groundtruth_file.readlines()
@@ -208,13 +229,14 @@ def LK_run():
     # print("coord",coord.shape,np.min(coord,axis=0),np.max(coord,axis=0))
     p = np.eye(3)
     for i in range(1, len(frames)):
-        
+        print(i)
         frame = frames[i]
         frame_pyr = getImgPyr(frame, pyr_layers)
+        p = getInitialParams(frame, template, template_start_point, cv2.TM_CCORR_NORMED)
         for layer in range(pyr_layers):
             p = pyrDownParams(p)
         for layer in range(pyr_layers, -1, -1):
-            p = iterate(frame_0_pyr[layer], frame_pyr[layer], coord_pyr[layer], p, Jacobian_pyr[layer])
+            p = iterate(frame_0_pyr[layer], frame_pyr[layer], coord_pyr[layer], p, Jacobian_pyr[layer], layer)
             if (layer>0):
                 p = pyrUpParams(p)
        
