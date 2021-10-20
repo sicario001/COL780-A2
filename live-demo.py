@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 import time
 from blockBasedTracker import blockBasedTracking
-from templateTrackingAffine import affineLkInit,affineLkTracking,hyper_params
+from templateTrackingAffine import affineLkInit,affineLkTracking
 
 
 app = Flask(__name__,template_folder='./templates')
@@ -15,7 +15,7 @@ affineParams = {'initialized':False,'pyr_layers':3}
 blockParams = {'initialized':False}
 prev = time.time()
 capturing = True
-frame_rate = 5
+frame_rate = 24
 
 def track():
     global template,prev,hyper_params
@@ -23,13 +23,13 @@ def track():
         if trackMethod == 'block':
             if not blockParams['initialized']:
                 blockParams['template_start_point'] = np.array(camera.read()[1].shape)//2
-                blockParams['method'] = cv2.TM_SQDIFF_NORMED
+                blockParams['method'] = cv2.TM_CCORR_NORMED
                 print(camera.read()[1].shape)
         else:
             if not affineParams['initialized']:
-                affineParams['template_start_point'] = np.array(camera.read()[1].shape)[::-1]//2
+                affineParams['template_start_point'] = np.array([1,1])
                 affineParams['init_template'] = template.copy()
-                affineParams['init_template_start_point'] = np.array(camera.read()[1].shape)[::-1]//2
+                affineParams['init_template_start_point'] = np.array([1,1])
                 affineParams['template_box'] = np.array([(0,0),np.array(template.shape)[::-1]])
                 affineParams['frame_0_pyr'],affineParams['coord_pyr'],affineParams['Jacobian_pyr'] = affineLkInit(template,affineParams['pyr_layers'],affineParams['template_box'])
     while capturing:
@@ -41,10 +41,10 @@ def track():
             prev = time.time()
             if template is not None:
                 if trackMethod == 'block':
-                    frame,template,blockParams['template_start_point'] = blockBasedTracking(frame, template, blockParams['template_start_point'], blockParams['method'])
+                    frame,_,blockParams['template_start_point'] = blockBasedTracking(frame, template, blockParams['template_start_point'], blockParams['method'])
                 else:
                     frame = cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
-                    _, _, affineParams['init_template_start_point'],affineParams['rect_bound'],frame = affineLkTracking(affineParams['coord_pyr'],affineParams['Jacobian_pyr'],affineParams['template_box'],affineParams['frame_0_pyr'],frame,affineParams['pyr_layers'],affineParams['init_template'],affineParams['template_start_point'],affineParams['init_template_start_point'])
+                    affineParams['int_p'], _, affineParams['init_template_start_point'],affineParams['rect_bound'],frame = affineLkTracking(affineParams['coord_pyr'],affineParams['Jacobian_pyr'],affineParams['template_box'],affineParams['frame_0_pyr'],frame,affineParams['pyr_layers'],affineParams['init_template'],affineParams['template_start_point'],affineParams['init_template_start_point'])
             ret, buffer = cv2.imencode('.jpg', frame)
             frame = buffer.tobytes()
             yield (b'--frame\r\n'
@@ -80,6 +80,8 @@ def set(mthd):
         blockParams['method'] = cv2.TM_SQDIFF
     if mthd=="norm":
         blockParams['method'] = cv2.TM_SQDIFF_NORMED
+    if mthd=="cc":
+        blockParams['method'] = cv2.TM_CCORR_NORMED
     return redirect(url_for('index'), code=302)
 
 @app.route('/video_feed')
