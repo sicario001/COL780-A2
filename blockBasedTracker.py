@@ -4,10 +4,10 @@ import cv2
 from numpy.core.fromnumeric import shape
 
 
-hyper_parameters_car = {"update-template":False, "translation-limit-factor":2, "scale-low":0.6, "scale-high":1.5, "scale-increment":0.05}
+hyper_parameters_car = {"update-template":False, "translation-limit-factor":2, "scale-low":0.6, "scale-high":1.8, "scale-increment":0.07}
 hyper_parameters_bolt = {"update-template":True, "translation-limit-factor":100,"scale-low":1.0, "scale-high":1.05, "scale-increment":0.05}
 hyper_parameters_liquor = {"update-template":False, "translation-limit-factor":2, "scale-low":0.6, "scale-high":1.5, "scale-increment":0.05}
-hyper_parameters = hyper_parameters_liquor
+hyper_parameters = hyper_parameters_car
 #returns bounding rectangle as x, y, w, h (w is along x and h is along y)
 def getRect(val):
     val = val.replace("\t", ",")
@@ -46,6 +46,7 @@ def getMeanIOUScore(bounding_rect, groundtruth_rect):
 
 def blockBasedTracking(frame, template, template_start_point, method):
     frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    # frame_gray = cv2.equalizeHist
     best = None
     scale = hyper_parameters["scale-low"]
     N = (hyper_parameters["scale-high"]-hyper_parameters["scale-low"])//hyper_parameters["scale-increment"]
@@ -91,40 +92,40 @@ def blockBasedTracking(frame, template, template_start_point, method):
         return frame_tracking, new_template, top_left
     
     
+if __name__ == "__main__":
+    frames = []
+    path_vid = "A2/BlurCar2/"
+    filenames = sorted(os.listdir(path_vid+'img/'))
+    groundtruth_file = open(path_vid+'groundtruth_rect.txt')
+    groundtruth_rect = groundtruth_file.readlines()
+    groundtruth_rect = [getRect(x) for x in groundtruth_rect]
+    bounding_rect = [groundtruth_rect[0]]
+    for filename in filenames:
+        frame = cv2.imread(os.path.join(path_vid+'img/', filename))
+        frames.append(frame)
 
-frames = []
-path_vid = "A2/Liquor/"
-filenames = os.listdir(path_vid+'img/')
-groundtruth_file = open(path_vid+'groundtruth_rect.txt')
-groundtruth_rect = groundtruth_file.readlines()
-groundtruth_rect = [getRect(x) for x in groundtruth_rect]
-bounding_rect = [groundtruth_rect[0]]
-for filename in filenames:
-    frame = cv2.imread(os.path.join(path_vid+'img/', filename))
-    frames.append(frame)
-
-frames = np.array(frames)
-#Get initial template
-template = frames[0][groundtruth_rect[0][1]:(groundtruth_rect[0][1]+groundtruth_rect[0][3]), groundtruth_rect[0][0]:(groundtruth_rect[0][0]+groundtruth_rect[0][2])].copy()
-template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-template_start_point = (groundtruth_rect[0][0], groundtruth_rect[0][1])
-template_end_point = (groundtruth_rect[0][0]+groundtruth_rect[0][2], groundtruth_rect[0][1]+groundtruth_rect[0][3])
-template_box = (template_start_point, template_end_point)
-for i in range(1, len(frames)):
-    frame = frames[i]
-    template_track, matched_template, template_start_point = blockBasedTracking(frame, template, template_start_point, cv2.TM_CCORR_NORMED)
-    bounding_rect.append((template_start_point[0], template_start_point[1], matched_template.shape[1], matched_template.shape[0]))
-    if(hyper_parameters["update-template"]):
-        template = matched_template
-    cv2.imshow("template tracking block based", template_track)
-    start_point = (groundtruth_rect[i][0], groundtruth_rect[i][1])
-    end_point = (groundtruth_rect[i][0]+groundtruth_rect[i][2], groundtruth_rect[i][1]+groundtruth_rect[i][3])
-    frame = cv2.rectangle(frame, start_point, end_point, (255, 0, 0), 2)
-    cv2.imshow("template tracking groundtruth", frame)
-    k = cv2.waitKey(1)
-    # if k==27:
-    #     break
-print("mIOU: "+str(getMeanIOUScore(bounding_rect, groundtruth_rect)))
-cv2.destroyAllWindows()
+    frames = np.array(frames)
+    #Get initial template
+    template = frames[0][groundtruth_rect[0][1]:(groundtruth_rect[0][1]+groundtruth_rect[0][3]), groundtruth_rect[0][0]:(groundtruth_rect[0][0]+groundtruth_rect[0][2])].copy()
+    template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+    template_start_point = (groundtruth_rect[0][0], groundtruth_rect[0][1])
+    template_end_point = (groundtruth_rect[0][0]+groundtruth_rect[0][2], groundtruth_rect[0][1]+groundtruth_rect[0][3])
+    template_box = (template_start_point, template_end_point)
+    for i in range(1, len(frames)):
+        frame = frames[i]
+        template_track, matched_template, template_start_point = blockBasedTracking(frame, template, template_start_point, cv2.TM_CCORR_NORMED)
+        bounding_rect.append((template_start_point[0], template_start_point[1], matched_template.shape[1], matched_template.shape[0]))
+        if(hyper_parameters["update-template"]):
+            template = matched_template
+        cv2.imshow("template tracking block based", template_track)
+        start_point = (groundtruth_rect[i][0], groundtruth_rect[i][1])
+        end_point = (groundtruth_rect[i][0]+groundtruth_rect[i][2], groundtruth_rect[i][1]+groundtruth_rect[i][3])
+        frame = cv2.rectangle(frame, start_point, end_point, (255, 0, 0), 2)
+        cv2.imshow("template tracking groundtruth", frame)
+        k = cv2.waitKey(1)
+        # if k==27:
+        #     break
+    print("mIOU: "+str(getMeanIOUScore(bounding_rect, groundtruth_rect)))
+    cv2.destroyAllWindows()
 
 
